@@ -1,2 +1,2 @@
 # prinses_max
-These are Jacob's scripts from his Fulbright research projects
+These are my scripts from Fulbright research projects @ Princess Máxima Center
