@@ -1,2 +1,2 @@
 # prinses_max
-These are my scripts from Fulbright research projects @ Princess Máxima Center
+These are my scripts from my Fulbright research projects @ Princess Máxima Center, Utrecht, The Netherlands

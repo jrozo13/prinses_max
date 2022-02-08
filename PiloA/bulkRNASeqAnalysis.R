@@ -2,6 +2,11 @@
 # Last updated: 11/01/2022
 
 ########## Initialize ##########
+## Install global packages ##
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(readxl)
 library(RColorBrewer)
 library(circlize)
 col_annotations <- list(
@@ -12,10 +17,9 @@ col_annotations <- list(
   Age = colorRamp2(c(0,20), c("#edf8e9", "#74c476"))
 )
 
-library(tidyverse)
-meta_data <- read.csv(file = "/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/PA_cohort_metadata.csv")
+meta_data <- read.csv(file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PA_cohort_metadata.csv")
 unique_samples <- meta_data$Sample.ID
-covariate_data <- meta_data %>% tibble::column_to_rownames(var = "Sample.ID") %>% 
+covariate_data <- meta_data %>% column_to_rownames(var = "Sample.ID") %>% 
   select("gender", "Age..years.", "location_updated", "Primary.or.recurrent.") %>%
   drop_na()
 colnames(covariate_data) <- c("Sex", "Age", "Location", "Stage")
@@ -23,7 +27,7 @@ covariate_data$Location <- as.factor(covariate_data$Location)
 covariate_data$Sex <- as.factor(covariate_data$Sex)
 unique_samples <- rownames(covariate_data)
 
-load_data <- readRDS("/Users/jrozowsky/Documents/PMC/Data/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
+load_data <- readRDS("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/Data/PMC/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
 count_data <- load_data$rawCounts %>% select(unique_samples)
 cpm_data <- load_data$counts %>% data.frame() %>% select(unique_samples)
 rm(load_data)
@@ -39,7 +43,7 @@ dataScale <- apply(countsLog, 2, function(x) (x - meanGenes)/varGenes)
 ### Dimensionality reduction ###
 ### PCA ###
 library(DESeq2)
-library("gg3D")
+# library("gg3D")
 library(plotly)
 dds <- DESeqDataSetFromMatrix(countData = count_data,
                               colData = covariate_data,
@@ -91,7 +95,7 @@ ggplot(data = umap_data, aes(x = `1`, y = `2`, color = Location)) +
 ### Unsupervised clustering ###
 library(ComplexHeatmap)
 # Identify protein-coding genes
-annotations_ahb <- read.csv("/Users/jrozowsky/Documents/PMC/PA/PA_Methods/annotations_ahb.csv")
+annotations_ahb <- read.csv("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/Methods/FunctionalEnrichment/annotations_ahb.csv")
 coding_genes <- annotations_ahb$gene_name[annotations_ahb$gene_biotype == "protein_coding"]
 varFeatures_coding <- varFeatures[varFeatures %in% coding_genes]
 
@@ -140,9 +144,9 @@ res.sp_st <- results(dds, alpha = 0.05, test = "Wald", contrast = c("Location", 
 res_tab.sp_st <- data.frame(res.sp_st[order(res.sp_st$padj)[1:5000],])
 res_tab.sp_st %>% 
   mutate(threshold = padj < 0.001 & abs(log2FoldChange) >= 1) %>%
-  tibble::rownames_to_column() %>%
+  rownames_to_column() %>%
   mutate(text = ifelse(threshold == TRUE, rowname, NA)) %>%
-  tibble::column_to_rownames(var = "rowname") %>%
+  column_to_rownames(var = "rowname") %>%
   ggplot(aes(x = log2FoldChange, y = -log10(padj), colour = threshold, label = text)) +
   geom_point(alpha = 0.3) +
   geom_text_repel(box.padding = 0.1, size = 2) +
@@ -154,13 +158,13 @@ res_tab.sp_st %>%
         axis.title = element_text(size = rel(1.25)))
 
 ranks <- res_tab.spinal %>% 
-  tibble::rownames_to_column() %>%
+  rownames_to_column() %>%
   dplyr::select(rowname, stat) %>%
   na.omit() %>% 
   distinct() %>% 
   group_by(rowname) %>% 
   summarize(stat=mean(stat)) %>%
-  tibble::deframe()
+  deframe()
 
 pathways.hallmark <- gmtPathways("/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/h.all.v7.4.symbols.gmt")
 fgseaRes <- fgsea(pathways = pathways.hallmark, stats = ranks, nperm = 1000)
@@ -230,9 +234,9 @@ res.spinal <- results(dds_sp, alpha = 0.05, test = "Wald", contrast = c("Spinal_
 res_tab.spinal <- data.frame(res.spinal[order(res.spinal$padj)[1:5000],])
 res_tab.spinal %>% 
   mutate(threshold = padj < 0.001 & abs(log2FoldChange) >= 1) %>%
-  tibble::rownames_to_column() %>%
+  rownames_to_column() %>%
   mutate(text = ifelse(threshold == TRUE, rowname, NA)) %>%
-  tibble::column_to_rownames(var = "rowname") %>%
+  column_to_rownames(var = "rowname") %>%
   ggplot(aes(x = log2FoldChange, y = -log10(padj), colour = threshold, label = text)) +
   geom_point(alpha = 0.3) +
   geom_text_repel(box.padding = 0.1, size = 2) +
@@ -243,7 +247,7 @@ res_tab.spinal %>%
         plot.title = element_text(size = rel(1.5), hjust = 0.5),
         axis.title = element_text(size = rel(1.25)))
 
-res_tab.spinal <- left_join(res_tab.spinal %>% tibble::rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
+res_tab.spinal <- left_join(res_tab.spinal %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
 all_genes.spinal <- as.character(res_tab.spinal$gene_id)
 
 sigOE_spinal <- dplyr::filter(res_tab.spinal, padj < 0.05 & log2FoldChange > 0) %>%
@@ -275,7 +279,7 @@ vsd_pf <- vst(dds_pf, blind = FALSE)
 
 res.pf <- results(dds_pf, alpha = 0.05, test = "Wald", contrast = c("PF_Loc", "Posterior fossa", "Not.PF"))
 res_tab.pf <- data.frame(res.pf[order(res.pf$padj)[1:5000],])
-res_tab.pf <- left_join(res_tab.pf %>% tibble::rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
+res_tab.pf <- left_join(res_tab.pf %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
 all_genes.pf <- as.character(res_tab.pf$gene_id)
 
 sigOE_pf <- dplyr::filter(res_tab.pf, padj < 0.05 & log2FoldChange > 0) %>%
@@ -298,7 +302,6 @@ enrichGO(gene = sigOE_pf,
   dotplot(showCategory = 20)
 
 ########## Immune Panel ##########
-library(readxl)
 immune_genes <- read_excel("Documents/PMC/PA/PA_DataSets/LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx", 
                                                                                sheet = "Annotations", skip = 1)
 immune_genes <- immune_genes$`Gene Name`[1:770]
@@ -437,7 +440,7 @@ write.csv(count_data, file = "/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/Bulk
 
 PA_cibersortx_LM22 <- read.csv("Documents/PMC/PA/PA_DataSets/PA_cibersortx_LM22.csv")
 PA_lm22 <- PA_cibersortx_LM22[,1:23] %>%
-  tibble::column_to_rownames(var = "Mixture") %>%
+  column_to_rownames(var = "Mixture") %>%
   dplyr::select(!Dendritic.cells.resting) %>%
   as.matrix() %>% t()
 covariate_lm22 <- covariate_data[intersect(rownames(covariate_data), colnames(PA_lm22)),]
