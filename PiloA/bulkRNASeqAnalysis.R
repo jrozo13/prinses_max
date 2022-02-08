@@ -50,9 +50,9 @@ dds_pca <- DESeqDataSetFromMatrix(countData = count_data,
                               design = ~ 1)
 levels(dds_pca$Location) <- c("Posterior.fossa", "Spinal", "Supratentorial")
 design(dds_pca) <- ~Location
-dds <- DESeq(dds_pca, test = "LRT", reduced = ~ 1)
+dds_pca <- DESeq(dds_pca, test = "LRT", reduced = ~ 1)
 vsd <- vst(dds_pca, blind = FALSE)
-pca <- prcomp(t(assay(vsd)[varFeatures[1:500], ]))
+pca <- prcomp(t(assay(vsd)[varFeatures[1:420], ]))
 percentVar <- pca$sdev^2/sum(pca$sdev^2)
 d <- cbind(pca$x, covariate_data)
 
@@ -74,11 +74,11 @@ ggplot(data = d, aes(x = PC3, y = PC4, color = Location)) +
 ### UMAP ###
 library(umap)
 library(ggforce)
-set.seed(14); umap_res <- umap(pca$x, alpha=0.1, gamma=0.5)
+set.seed(100); umap_res <- umap(pca$x[,c(1,3:88)], alpha=0.1, gamma=1)
 umap_data <- cbind(umap_res$layout, covariate_data)
-ggplot(data = umap_data, aes(x = `1`, y = `2`, color = Location)) +
+umap_plot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
   #geom_density2d(alpha = 0.7, na.rm = TRUE, contour_var = "count") +
-  geom_point(aes(fill = Location), colour = "grey30", pch = 21, size = 2) + 
+  geom_point(aes(fill = Location), colour = "grey30", pch = 21, size = 3) + 
   xlab("UMAP1") + ylab("UMAP2") +
   guides(col = guide_legend(ncol = 1)) +
   scale_color_manual(name = "Location", values = col_annotations$Location) +
@@ -90,7 +90,10 @@ ggplot(data = umap_data, aes(x = `1`, y = `2`, color = Location)) +
         legend.position = "none") +
   ylim(c(-2.7, 2.7)) +
   xlim(c(-2.7, 2.7))
-#ggsave(filename = "/Users/jrozowsky/Documents/PMC/PA/PA_Figures/UMAP_PA.png", plot = last_plot(), width = 5, height = 5)
+
+pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/UMAP.pdf")
+print(umap_plot)
+dev.off()
 
 ### Unsupervised clustering ###
 library(ComplexHeatmap)
@@ -114,6 +117,9 @@ Heatmap(corr_res,
         show_row_names = FALSE,
         show_column_names = FALSE,
         show_row_dend = FALSE)
+pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/heatmap.pdf")
+print(heatmap)
+dev.off()
 
 ### Consensus clustering ###
 library(ConsensusClusterPlus)

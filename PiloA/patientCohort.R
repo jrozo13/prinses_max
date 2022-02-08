@@ -3,12 +3,12 @@
 # Note: skip to bottom to run OncoPrint
 
 ########## Cohort ########## 
-load_data <- readRDS("/Users/jrozowsky/Documents/PMC/Data/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
+load_data <- readRDS("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/Data/PMC/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
 meta_data <- load_data$metaData
 lennart_samples <- rownames(meta_data)[meta_data$Disease_sub_class == "Pilocytic astrocytoma"]
 
 library(readxl)
-mutation_cohort <- read_excel(path = "~/Library/Mobile Documents/com~apple~CloudDocs/Documents/Research/PMC/PA/ClinicalData_updates.xlsx",
+mutation_cohort <- read_excel(path = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Cohort/ClinicalData_updates.xlsx",
            sheet = "MutationData_cohort") %>% data.frame()
 mutation_cohort$...1 <- NULL
 mat <- mutation_cohort %>% 
@@ -23,7 +23,7 @@ mat <- mutation_cohort %>%
 mat[is.na(mat)] <- ""
 unique_samples <- colnames(mat)
 
-annotations <- read_excel(path = "~/Library/Mobile Documents/com~apple~CloudDocs/Documents/Research/PMC/PA/ClinicalData_updates.xlsx",
+annotations <- read_excel(path = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Cohort/ClinicalData_updates.xlsx",
                           sheet = "ClinicalData_cohort") %>% data.frame()
 annotations$...1 <- NULL
 annotations_updated <- annotations %>% 
@@ -32,7 +32,7 @@ annotations_updated <- annotations %>%
   select(Sample.ID, gender, Age..years., location, X..Mutations)
 
 length(intersect(annotations_updated$Sample.ID, lennart_samples))
-# 89 similar samples between Mariette's and Lennart's samples
+# 88 similar samples between Mariette's and Lennart's samples
 
 # Find which samples are missing from Lennart data set
 lennart_missing <- setdiff(unique_samples, lennart_samples)
@@ -41,7 +41,7 @@ lennart_missing <- setdiff(unique_samples, lennart_samples)
 lennart_missing %in% row.names(meta_data) # TRUE --> we have the data, just annotated wrong
 lennart_samples <- unique(c(lennart_samples, "PMLBM000AGP", "PMLBM000DUQ"))
 setdiff(unique_samples, unique(lennart_samples)) # fixed!
-unique_samples <- intersect(unique_samples, lennart_samples) # 91 samples
+unique_samples <- intersect(unique_samples, lennart_samples) # 90 samples
 
 # Find which samples are missing from Mariette's data set
 mariette_missing <- setdiff(lennart_samples, unique_samples)
@@ -93,11 +93,11 @@ combined$location_updated <- factor(combined$location_updated,
 combined <- combined %>% 
   arrange(Gene.mutated, X..Mutations, Mutation.class, location_updated, Age..years., gender) %>%
   distinct(Sample.ID, .keep_all = TRUE)
-#write.csv(combined, file = "/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/PA_cohort_metadata.csv")
+#write.csv(combined, file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PA_cohort_metadata.csv")
 
 sample_order <- unique(combined$Sample.ID)
 mat <- mat[,sample_order]
-#write.csv(mat, file = "/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/PA_for_oncoprint.csv")
+#write.csv(mat, file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PA_for_oncoprint.csv")
 
 ########## Make OncoPrint ##########
 library(xlsx)
