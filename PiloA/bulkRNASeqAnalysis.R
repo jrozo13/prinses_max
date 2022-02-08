@@ -45,13 +45,13 @@ dataScale <- apply(countsLog, 2, function(x) (x - meanGenes)/varGenes)
 library(DESeq2)
 # library("gg3D")
 library(plotly)
-dds <- DESeqDataSetFromMatrix(countData = count_data,
+dds_pca <- DESeqDataSetFromMatrix(countData = count_data,
                               colData = covariate_data,
                               design = ~ 1)
-levels(dds$Location) <- c("Posterior.fossa", "Spinal", "Supratentorial")
-design(dds) <- ~Location
-dds <- DESeq(dds, test = "LRT", reduced = ~ 1)
-vsd <- vst(dds, blind = FALSE)
+levels(dds_pca$Location) <- c("Posterior.fossa", "Spinal", "Supratentorial")
+design(dds_pca) <- ~Location
+dds <- DESeq(dds_pca, test = "LRT", reduced = ~ 1)
+vsd <- vst(dds_pca, blind = FALSE)
 pca <- prcomp(t(assay(vsd)[varFeatures[1:500], ]))
 percentVar <- pca$sdev^2/sum(pca$sdev^2)
 d <- cbind(pca$x, covariate_data)
