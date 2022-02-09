@@ -245,6 +245,15 @@ vsd_sp <- vst(dds_sp, blind = FALSE)
 
 res.spinal <- results(dds_sp, alpha = 0.05, test = "Wald", contrast = c("Spinal_Loc", "Spinal", "Not.spinal"))
 res_tab.spinal <- data.frame(res.spinal[order(res.spinal$padj)[1:5000],])
+spinal_gsea_file <- res_tab.spinal %>%
+  filter(log2FoldChange > 0) %>%
+  select(rowname, padj)
+write.csv(spinal_gsea_file, file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/spinal_geneList.csv")
+write.table(x = spinal_gsea_file, 
+            file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/spinal_geneList.txt",
+            sep = "\t",
+            row.names = FALSE)
+
 res_tab.spinal %>% 
   mutate(threshold = padj < 0.001 & abs(log2FoldChange) >= 1) %>%
   rownames_to_column() %>%
