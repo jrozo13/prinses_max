@@ -17,6 +17,7 @@ col_annotations <- list(
   Age = colorRamp2(c(0,20), c("#edf8e9", "#74c476"))
 )
 
+########## Prepare Data ##########
 meta_data <- read.csv(file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PA_cohort_metadata.csv")
 unique_samples <- meta_data$Sample.ID
 covariate_data <- meta_data %>% column_to_rownames(var = "Sample.ID") %>% 
@@ -32,14 +33,23 @@ count_data <- load_data$rawCounts %>% select(unique_samples)
 cpm_data <- load_data$counts %>% data.frame() %>% select(unique_samples)
 rm(load_data)
 
-########## Whole transcriptome analysis ##########
-countsLog <- log(cpm_data + 1)
+xy_genes <- read.delim2("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/xy_genes.txt", header = TRUE, sep = "\t", dec = ".")
+
+## remove x and y linked genes
+genes_to_use <- setdiff(rownames(count_data), xy_genes$Approved.symbol)
+
+countsLog <- log(cpm_data[genes_to_use,] + 1)
 varGenes <- apply(countsLog, 1, var)
 meanGenes <- apply(countsLog, 1, mean)
 nFeatures = 5000
 varFeatures <- names(varGenes)[order(varGenes, decreasing = T)][c(1:nFeatures)]
 dataScale <- apply(countsLog, 2, function(x) (x - meanGenes)/varGenes)
 
+save(count_data, dataScale, varFeatures, covariate_data, 
+     file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_Data_09.02.2022.RData")
+
+########## Whole transcriptome analysis ##########
+load(file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_Data_09.02.2022.RData")
 ### Dimensionality reduction ###
 ### PCA ###
 library(DESeq2)
@@ -56,10 +66,14 @@ pca <- prcomp(t(assay(vsd)[varFeatures[1:420], ]))
 percentVar <- pca$sdev^2/sum(pca$sdev^2)
 d <- cbind(pca$x, covariate_data)
 
-plot_ly(d, x = d$PC1, y = d$PC3, z = d$PC4, color = d$Location, colors = col_annotations$Location) %>%
+pca_3d <- plot_ly(d, x = d$PC1, y = d$PC2, z = d$PC3, color = d$Location, colors = col_annotations$Location) %>%
   add_markers()
 
-ggplot(data = d, aes(x = PC1, y = PC3, color = Location)) +
+jpeg("/Users/jrozowsky/Desktop/")
+print(pca_3d)
+dev.off()
+
+ggplot(data = d, aes(x = PC1, y = PC2, color = Location)) +
   geom_point()
 ggplot(data = d, aes(x = PC1, y = PC3, color = Location)) +
   geom_point()
@@ -74,20 +88,18 @@ ggplot(data = d, aes(x = PC3, y = PC4, color = Location)) +
 ### UMAP ###
 library(umap)
 library(ggforce)
-set.seed(100); umap_res <- umap(pca$x[,c(1,3:88)], alpha=0.1, gamma=1)
+set.seed(613); umap_res <- umap(pca$x, alpha=0.5, gamma=1)
 umap_data <- cbind(umap_res$layout, covariate_data)
 umap_plot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
-  #geom_density2d(alpha = 0.7, na.rm = TRUE, contour_var = "count") +
-  geom_point(aes(fill = Location), colour = "grey30", pch = 21, size = 3) + 
+  geom_point(aes(fill = Location), colour = "grey30", pch = 21, size = 2) + 
   xlab("UMAP1") + ylab("UMAP2") +
   guides(col = guide_legend(ncol = 1)) +
   scale_color_manual(name = "Location", values = col_annotations$Location) +
   scale_fill_manual(name = "Location", values = col_annotations$Location) +
   theme_classic() +
-  theme(panel.background = element_rect(colour = "grey30", size=2),
+  theme(panel.background = element_rect(colour = "grey30", size=1),
         axis.line = element_blank(),
-        plot.title = element_text(size = 20),
-        legend.position = "none") +
+        plot.title = element_text(size = 20)) +
   ylim(c(-2.7, 2.7)) +
   xlim(c(-2.7, 2.7))
 
@@ -103,11 +115,11 @@ coding_genes <- annotations_ahb$gene_name[annotations_ahb$gene_biotype == "prote
 varFeatures_coding <- varFeatures[varFeatures %in% coding_genes]
 
 # calculate inter-patient correlation based on protein-coding gene expression
-corr_res <- cor(dataScale[varFeatures_coding[1:420],], method = "pearson")
+corr_res <- cor(dataScale[varFeatures_coding[1:560],], method = "pearson")
 Heatmap(corr_res,
         show_heatmap_legend = FALSE,
-        clustering_distance_rows = "pearson",
-        clustering_distance_columns = "pearson",
+        clustering_distance_rows = "euclidean",
+        clustering_distance_columns = "euclidean",
         column_dend_height = unit(4, "cm"),
         top_annotation = HeatmapAnnotation(Age = covariate_data$Age,
                                            Sex = covariate_data$Sex,
