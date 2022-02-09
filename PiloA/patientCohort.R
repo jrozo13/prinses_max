@@ -124,7 +124,7 @@ col_annotations <- list(
   `Age (years)` = colorRamp2(c(0,20), c("#edf8e9", "#74c476"))
 )
 
-mat <- read.csv("PA_DataSets/PA_for_oncoprint.csv", header = T, row.names = 1)
+mat <- read.csv("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PA_for_oncoprint.csv", header = T, row.names = 1)
 combined <- read.csv("/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/PA_cohort_metadata.csv",
                      header = T, row.names = 1)
 

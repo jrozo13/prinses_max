@@ -80,11 +80,6 @@ ggplot(data = d, aes(x = PC1, y = PC3, color = Location)) +
 ggplot(data = d, aes(x = PC3, y = PC4, color = Location)) +
   geom_point()
 
-# PC1: separates PF from Spinal and ST
-# PC2: separates M from F
-# PC3: separates ST from PF and Spinal
-# PC4: separates Spinal from ST and PF
-
 ### UMAP ###
 library(umap)
 library(ggforce)
@@ -103,7 +98,8 @@ umap_plot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
   ylim(c(-2.7, 2.7)) +
   xlim(c(-2.7, 2.7))
 
-pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/UMAP.pdf")
+pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/UMAP.pdf",
+    width = 8, height = 6)
 print(umap_plot)
 dev.off()
 
@@ -115,9 +111,9 @@ coding_genes <- annotations_ahb$gene_name[annotations_ahb$gene_biotype == "prote
 varFeatures_coding <- varFeatures[varFeatures %in% coding_genes]
 
 # calculate inter-patient correlation based on protein-coding gene expression
-corr_res <- cor(dataScale[varFeatures_coding[1:560],], method = "pearson")
-Heatmap(corr_res,
-        show_heatmap_legend = FALSE,
+corr_res <- cor(dataScale[varFeatures_coding[1:510],], method = "pearson")
+heatmap <- Heatmap(corr_res,
+        show_heatmap_legend = TRUE,
         clustering_distance_rows = "euclidean",
         clustering_distance_columns = "euclidean",
         column_dend_height = unit(4, "cm"),
@@ -151,14 +147,8 @@ results = ConsensusClusterPlus(d,
                                plot=NULL)
 
 ########## Differential expression analysis ##########
-library(DESeq2)
-library(fgsea)
-library(org.Hs.eg.db)
-library(clusterProfiler)
-annotations_ahb <- read.csv("/Users/jrozowsky/Documents/PMC/PA/PA_Methods/annotations_ahb.csv")
-
 #### Spinal vs Supratentorial ####
-res.sp_st <- results(dds, alpha = 0.05, test = "Wald", contrast = c("Location", "Spinal", "Supratentorial"|"Posterior.fossa"))
+res.sp_st <- results(dds_pca, alpha = 0.05, test = "Wald", contrast = c("Location", "Spinal", "Supratentorial"))
 res_tab.sp_st <- data.frame(res.sp_st[order(res.sp_st$padj)[1:5000],])
 res_tab.sp_st %>% 
   mutate(threshold = padj < 0.001 & abs(log2FoldChange) >= 1) %>%
@@ -175,6 +165,7 @@ res_tab.sp_st %>%
         plot.title = element_text(size = rel(1.5), hjust = 0.5),
         axis.title = element_text(size = rel(1.25)))
 
+#### Do not run ####
 ranks <- res_tab.spinal %>% 
   rownames_to_column() %>%
   dplyr::select(rowname, stat) %>%
@@ -197,7 +188,7 @@ ggplot(fgseaResTidy, aes(reorder(pathway, NES), NES)) +
   theme_minimal()
 
 #### Spinal vs PF ####
-res.sp_pf <- results(dds, alpha = 0.05, test = "Wald", contrast = c("Location", "Spinal", "Posterior.fossa"))
+res.sp_pf <- results(dds_pca, alpha = 0.05, test = "Wald", contrast = c("Location", "Spinal", "Posterior.fossa"))
 res_tab.sp_pf <- data.frame(res.sp_pf[order(res.sp_pf$padj)[1:5000],])
 res_tab.sp_pf %>% 
   mutate(threshold = padj < 0.001 & abs(log2FoldChange) >= 1) %>%
@@ -215,7 +206,7 @@ res_tab.sp_pf %>%
         axis.title = element_text(size = rel(1.25)))
 
 #### PF vs ST ####
-res.st_pf <- results(dds, alpha = 0.05, test = "Wald", contrast = c("Location", "Supratentorial", "Posterior.fossa"))
+res.st_pf <- results(dds_pca, alpha = 0.05, test = "Wald", contrast = c("Location", "Supratentorial", "Posterior.fossa"))
 res_tab.st_pf <- data.frame(res.st_pf[order(res.st_pf$padj)[1:5000],])
 res_tab.st_pf %>% 
   mutate(threshold = padj < 0.001 & abs(log2FoldChange) >= 1) %>%
@@ -232,18 +223,22 @@ res_tab.st_pf %>%
         plot.title = element_text(size = rel(1.5), hjust = 0.5),
         axis.title = element_text(size = rel(1.25)))
 
+########## Functional enrichment analysis ##########library(fgsea)
+library(org.Hs.eg.db)
+library(fgsea)
+library(clusterProfiler)
 
-covariate_data.2 <- covariate_data %>%
+covariate_data <- covariate_data %>%
   mutate(Spinal_Loc = ifelse(Location == "Spinal", "Spinal", "Not.spinal")) %>%
   mutate(PF_Loc = ifelse(Location == "Posterior fossa", "Posterior fossa", "Not.PF")) %>%
   mutate(ST_Loc = ifelse(Location == "Supratentorial", "Supratentorial", "Not.ST"))
-covariate_data.2$Spinal_Loc <- as.factor(covariate_data.2$Spinal_Loc)
-covariate_data.2$PF_Loc <- as.factor(covariate_data.2$PF_Loc)
-covariate_data.2$ST_Loc <- as.factor(covariate_data.2$ST_Loc)
+covariate_data$Spinal_Loc <- as.factor(covariate_data$Spinal_Loc)
+covariate_data$PF_Loc <- as.factor(covariate_data$PF_Loc)
+covariate_data$ST_Loc <- as.factor(covariate_data$ST_Loc)
 
 #### Spinal vs others ####
 dds_sp <- DESeqDataSetFromMatrix(countData = count_data,
-                              colData = covariate_data.2,
+                              colData = covariate_data,
                               design = ~ Spinal_Loc)
 dds_sp <- DESeq(dds_sp)
 vsd_sp <- vst(dds_sp, blind = FALSE)
@@ -271,26 +266,45 @@ all_genes.spinal <- as.character(res_tab.spinal$gene_id)
 sigOE_spinal <- dplyr::filter(res_tab.spinal, padj < 0.05 & log2FoldChange > 0) %>%
   dplyr::select(gene_id) %>% na.omit()
 sigOE_spinal <- as.character(sigOE_spinal$gene_id)
-
 sigUE_spinal <- dplyr::filter(res_tab.spinal, padj < 0.05 & log2FoldChange < 0) %>%
   dplyr::select(gene_id) %>% na.omit()
 sigUE_spinal <- as.character(sigUE_spinal$gene_id)
 
-enrichGO(gene = sigOE_spinal, 
-         universe = all_genes.spinal,
-         OrgDb = org.Hs.eg.db, 
-         keyType = 'ENSEMBL',
-         ont = "BP", 
-         pAdjustMethod = "BH", 
-         qvalueCutoff = 0.05, 
-         readable = TRUE) %>%
+spUE_GO <- enrichGO(gene = sigUE_spinal, 
+                    universe = all_genes.spinal,
+                    OrgDb = org.Hs.eg.db, 
+                    keyType = 'ENSEMBL',
+                    ont = "BP", 
+                    pAdjustMethod = "BH", 
+                    qvalueCutoff = 0.05, 
+                    readable = TRUE) %>%
   enrichplot::pairwise_termsim() %>%
-  dotplot(showCategory = 20)
-
+  dotplot(x = "GeneRatio",
+          showCategory = 20,
+          font.size = 8,
+          title = "Pathways under-enriched in spinal tumors")
+spOE_GO <- enrichGO(gene = sigOE_spinal, 
+                    universe = all_genes.spinal,
+                    OrgDb = org.Hs.eg.db, 
+                    keyType = 'ENSEMBL',
+                    ont = "BP", 
+                    pAdjustMethod = "BH", 
+                    qvalueCutoff = 0.05, 
+                    readable = TRUE) %>%
+  enrichplot::pairwise_termsim() %>%
+  dotplot(x = "GeneRatio",
+          showCategory = 20,
+          font.size = 8,
+          title = "Pathways enriched in spinal tumors")
+pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/spinal_GO.pdf")
+par(mfrow = c(1, 2))
+print(spUE_GO)
+print(spOE_GO)
+dev.off()
 
 #### PF vs others ####
 dds_pf <- DESeqDataSetFromMatrix(countData = count_data,
-                                 colData = covariate_data.2,
+                                 colData = covariate_data,
                                  design = ~ PF_Loc)
 dds_pf <- DESeq(dds_pf)
 vsd_pf <- vst(dds_pf, blind = FALSE)
@@ -308,16 +322,91 @@ sigUE_pf <- dplyr::filter(res_tab.pf, padj < 0.05 & log2FoldChange < 0) %>%
   dplyr::select(gene_id) %>% na.omit()
 sigUE_pf <- as.character(sigUE_pf$gene_id)
 
-enrichGO(gene = sigOE_pf, 
-         universe = all_genes.pf,
-         OrgDb = org.Hs.eg.db, 
-         keyType = 'ENSEMBL',
-         ont = "BP", 
-         pAdjustMethod = "BH", 
-         qvalueCutoff = 0.5, 
-         readable = TRUE) %>%
+pfUE_GO <- enrichGO(gene = sigUE_pf, 
+                    universe = all_genes.pf,
+                    OrgDb = org.Hs.eg.db, 
+                    keyType = 'ENSEMBL',
+                    ont = "BP", 
+                    pAdjustMethod = "BH", 
+                    qvalueCutoff = 0.05, 
+                    readable = TRUE) %>%
   enrichplot::pairwise_termsim() %>%
-  dotplot(showCategory = 20)
+  dotplot(x = "GeneRatio",
+          showCategory = 20,
+          font.size = 8,
+          title = "Pathways under-enriched in posterior fossa tumors")
+pfOE_GO <- enrichGO(gene = sigOE_pf, 
+                    universe = all_genes.pf,
+                    OrgDb = org.Hs.eg.db, 
+                    keyType = 'ENSEMBL',
+                    ont = "BP", 
+                    pAdjustMethod = "BH", 
+                    qvalueCutoff = 0.05, 
+                    readable = TRUE) %>%
+  enrichplot::pairwise_termsim() %>%
+  dotplot(x = "GeneRatio",
+          showCategory = 20,
+          font.size = 8,
+          title = "Pathways enriched in posterior fossa tumors")
+
+pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/pf_GO.pdf")
+par(mfrow = c(1, 2))
+print(pfUE_GO)
+print(pfOE_GO)
+dev.off()
+
+#### ST vs others ####
+dds_st <- DESeqDataSetFromMatrix(countData = count_data,
+                                 colData = covariate_data,
+                                 design = ~ ST_Loc)
+dds_st <- DESeq(dds_st)
+vsd_st <- vst(dds_st, blind = FALSE)
+
+res.st <- results(dds_st, alpha = 0.05, test = "Wald", contrast = c("ST_Loc", "Supratentorial", "Not.ST"))
+res_tab.st <- data.frame(res.st[order(res.st$padj)[1:5000],])
+res_tab.st <- left_join(res_tab.st %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
+all_genes.st <- as.character(res_tab.st$gene_id)
+
+sigOE_st <- dplyr::filter(res_tab.st, padj < 0.05 & log2FoldChange > 0) %>%
+  dplyr::select(gene_id) %>% na.omit()
+sigOE_st <- as.character(sigOE_st$gene_id)
+
+sigUE_st <- dplyr::filter(res_tab.st, padj < 0.05 & log2FoldChange < 0) %>%
+  dplyr::select(gene_id) %>% na.omit()
+sigUE_st <- as.character(sigUE_st$gene_id)
+
+stUE_GO <- enrichGO(gene = sigUE_st, 
+                    universe = all_genes.st,
+                    OrgDb = org.Hs.eg.db, 
+                    keyType = 'ENSEMBL',
+                    ont = "BP", 
+                     pAdjustMethod = "BH", 
+                     qvalueCutoff = 0.05, 
+                     readable = TRUE) %>%
+  enrichplot::pairwise_termsim() %>%
+  dotplot(x = "GeneRatio",
+          showCategory = 20,
+          font.size = 8,
+          title = "Pathways under-enriched in supratentorial tumors")
+stOE_GO <- enrichGO(gene = sigOE_st, 
+                    universe = all_genes.st,
+                    OrgDb = org.Hs.eg.db, 
+                    keyType = 'ENSEMBL',
+                    ont = "BP", 
+                    pAdjustMethod = "BH", 
+                    qvalueCutoff = 0.05, 
+                    readable = TRUE) %>%
+  enrichplot::pairwise_termsim() %>%
+  dotplot(x = "GeneRatio",
+          showCategory = 20,
+          font.size = 8,
+          title = "Pathways enriched in supratentorial tumors")
+
+pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/st_GO.pdf")
+par(mfrow = c(1, 2))
+print(stUE_GO)
+print(stOE_GO)
+dev.off()
 
 ########## Immune Panel ##########
 immune_genes <- read_excel("Documents/PMC/PA/PA_DataSets/LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx", 
