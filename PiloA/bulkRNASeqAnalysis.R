@@ -45,8 +45,8 @@ nFeatures = 5000
 varFeatures <- names(varGenes)[order(varGenes, decreasing = T)][c(1:nFeatures)]
 dataScale <- apply(countsLog, 2, function(x) (x - meanGenes)/varGenes)
 
-save(count_data, dataScale, varFeatures, covariate_data, 
-     file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_Data_09.02.2022.RData")
+# save(count_data, dataScale, varFeatures, covariate_data, 
+#      file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_Data_09.02.2022.RData")
 
 ########## Whole transcriptome analysis ##########
 load(file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_Data_09.02.2022.RData")
@@ -106,7 +106,7 @@ dev.off()
 ### Unsupervised clustering ###
 library(ComplexHeatmap)
 # Identify protein-coding genes
-annotations_ahb <- read.csv("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/Methods/FunctionalEnrichment/annotations_ahb.csv")
+annotations_ahb <- read.csv("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/GSEA/annotations_ahb.csv")
 coding_genes <- annotations_ahb$gene_name[annotations_ahb$gene_biotype == "protein_coding"]
 varFeatures_coding <- varFeatures[varFeatures %in% coding_genes]
 
@@ -165,7 +165,7 @@ res_tab.sp_st %>%
         plot.title = element_text(size = rel(1.5), hjust = 0.5),
         axis.title = element_text(size = rel(1.25)))
 
-#### Do not run ####
+### Do not run ###
 ranks <- res_tab.spinal %>% 
   rownames_to_column() %>%
   dplyr::select(rowname, stat) %>%
@@ -223,10 +223,12 @@ res_tab.st_pf %>%
         plot.title = element_text(size = rel(1.5), hjust = 0.5),
         axis.title = element_text(size = rel(1.25)))
 
-########## Functional enrichment analysis ##########library(fgsea)
+########## Functional enrichment analysis ##########
+library(fgsea)
 library(org.Hs.eg.db)
 library(fgsea)
 library(clusterProfiler)
+library(DESeq2)
 
 covariate_data <- covariate_data %>%
   mutate(Spinal_Loc = ifelse(Location == "Spinal", "Spinal", "Not.spinal")) %>%
@@ -245,18 +247,18 @@ vsd_sp <- vst(dds_sp, blind = FALSE)
 
 res.spinal <- results(dds_sp, alpha = 0.05, test = "Wald", contrast = c("Spinal_Loc", "Spinal", "Not.spinal"))
 res_tab.spinal <- data.frame(res.spinal[order(res.spinal$padj)[1:5000],])
-spinal_gsea_file <- res_tab.spinal %>%
-  filter(log2FoldChange > 0) %>%
-  select(rowname, padj)
-write.csv(spinal_gsea_file, file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/spinal_geneList.csv")
-write.table(x = spinal_gsea_file, 
-            file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/spinal_geneList.txt",
-            sep = "\t",
-            row.names = FALSE)
+res_tab.spinal <- left_join(res_tab.spinal %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
+all_genes.spinal <- as.character(res_tab.spinal$gene_id)
+
+sigOE_spinal <- dplyr::filter(res_tab.spinal, padj < 0.05 & log2FoldChange > 0) %>%
+  dplyr::select(gene_id) %>% na.omit()
+sigOE_spinal <- as.character(sigOE_spinal$gene_id)
+sigUE_spinal <- dplyr::filter(res_tab.spinal, padj < 0.05 & log2FoldChange < 0) %>%
+  dplyr::select(gene_id) %>% na.omit()
+sigUE_spinal <- as.character(sigUE_spinal$gene_id)
 
 res_tab.spinal %>% 
-  mutate(threshold = padj < 0.001 & abs(log2FoldChange) >= 1) %>%
-  rownames_to_column() %>%
+  mutate(threshold = padj < 0.001) %>%
   mutate(text = ifelse(threshold == TRUE, rowname, NA)) %>%
   column_to_rownames(var = "rowname") %>%
   ggplot(aes(x = log2FoldChange, y = -log10(padj), colour = threshold, label = text)) +
@@ -268,16 +270,6 @@ res_tab.spinal %>%
   theme(legend.position = "none",
         plot.title = element_text(size = rel(1.5), hjust = 0.5),
         axis.title = element_text(size = rel(1.25)))
-
-res_tab.spinal <- left_join(res_tab.spinal %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
-all_genes.spinal <- as.character(res_tab.spinal$gene_id)
-
-sigOE_spinal <- dplyr::filter(res_tab.spinal, padj < 0.05 & log2FoldChange > 0) %>%
-  dplyr::select(gene_id) %>% na.omit()
-sigOE_spinal <- as.character(sigOE_spinal$gene_id)
-sigUE_spinal <- dplyr::filter(res_tab.spinal, padj < 0.05 & log2FoldChange < 0) %>%
-  dplyr::select(gene_id) %>% na.omit()
-sigUE_spinal <- as.character(sigUE_spinal$gene_id)
 
 spUE_GO <- enrichGO(gene = sigUE_spinal, 
                     universe = all_genes.spinal,
@@ -310,6 +302,15 @@ par(mfrow = c(1, 2))
 print(spUE_GO)
 print(spOE_GO)
 dev.off()
+
+spinal_gsea_file <- res_tab.spinal %>%
+  filter(padj < 0.01) %>%
+  select(rowname, log2FoldChange) %>%
+  arrange(-log2FoldChange)
+write.table(x = spinal_gsea_file, 
+            file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/spinal_geneList.txt",
+            sep = "\t",
+            row.names = FALSE)
 
 #### PF vs others ####
 dds_pf <- DESeqDataSetFromMatrix(countData = count_data,
@@ -364,6 +365,15 @@ print(pfUE_GO)
 print(pfOE_GO)
 dev.off()
 
+pf_gsea_file <- res_tab.pf %>%
+  filter(padj < 0.01) %>%
+  select(rowname, log2FoldChange) %>%
+  arrange(-log2FoldChange)
+write.table(x = pf_gsea_file, 
+            file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/pf_geneList.txt",
+            sep = "\t",
+            row.names = FALSE)
+
 #### ST vs others ####
 dds_st <- DESeqDataSetFromMatrix(countData = count_data,
                                  colData = covariate_data,
@@ -416,6 +426,18 @@ par(mfrow = c(1, 2))
 print(stUE_GO)
 print(stOE_GO)
 dev.off()
+
+st_gsea_file <- res_tab.st %>%
+  filter(padj < 0.01) %>%
+  select(rowname, log2FoldChange) %>%
+  arrange(-log2FoldChange)
+write.table(x = st_gsea_file, 
+            file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/st_geneList.txt",
+            sep = "\t",
+            row.names = FALSE)
+
+save(annotations_ahb, dds_sp, dds_pf, dds_st, 
+     file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_GSEA_13.02.2022.RData")
 
 ########## Immune Panel ##########
 immune_genes <- read_excel("Documents/PMC/PA/PA_DataSets/LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx", 
