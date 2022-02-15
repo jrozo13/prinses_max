@@ -62,6 +62,8 @@ levels(dds_pca$Location) <- c("Posterior.fossa", "Spinal", "Supratentorial")
 design(dds_pca) <- ~Location
 dds_pca <- DESeq(dds_pca, test = "LRT", reduced = ~ 1)
 vsd <- vst(dds_pca, blind = FALSE)
+
+# Select the most variably expressed genes -> these are non-x/y genes
 pca <- prcomp(t(assay(vsd)[varFeatures[1:420], ]))
 percentVar <- pca$sdev^2/sum(pca$sdev^2)
 d <- cbind(pca$x, covariate_data)
@@ -436,8 +438,36 @@ write.table(x = st_gsea_file,
             sep = "\t",
             row.names = FALSE)
 
-save(annotations_ahb, dds_sp, dds_pf, dds_st, 
-     file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_GSEA_13.02.2022.RData")
+# save(annotations_ahb, dds_pca, dds_sp, dds_pf, dds_st, 
+#      file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_GSEA_13.02.2022.RData")
+
+########## Single sample GSEA ##########
+source(file = "ssGSEA.R")
+library(readxl)
+
+genesets <- read_excel("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/GSEA/Immune_metagenes.xlsx")
+genesets <- genesets %>%
+  select(Metagene, `Cell type`)
+celltypes <- unique(genesets$`Cell type`)
+celltype_genes <- list()
+for (i in 1:length(celltypes)) {
+  immune_cell <- celltypes[i]
+  celltype_genes[[immune_cell]] <- genesets$Metagene[genesets$`Cell type` == immune_cell]
+}
+
+logcounts <- log2(counts(dds_pca, normalized=TRUE) + 1)
+system.time(assign('res', ssgsea(logcounts, celltype_genes, scale = FALSE, norm = FALSE)))
+mat = (res - rowMeans(res))/(rowSds(as.matrix(res)))[row(res)]
+a <- t(mat[28,])
+Heatmap(mat,
+        clustering_distance_columns = "manhattan",
+        top_annotation = HeatmapAnnotation(Location = covariate_data$Location,
+                                           Sex = covariate_data$Sex,
+                                           col = col_annotations,
+                                           show_legend = TRUE),
+        show_row_names = TRUE,
+        show_column_names = FALSE,
+        show_row_dend = TRUE)
 
 ########## Immune Panel ##########
 immune_genes <- read_excel("Documents/PMC/PA/PA_DataSets/LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx", 
