@@ -207,7 +207,7 @@ res_tab.sp_pf %>%
         plot.title = element_text(size = rel(1.5), hjust = 0.5),
         axis.title = element_text(size = rel(1.25)))
 
-#### PF vs ST ####
+#### PF vs Supratentorial ####
 res.st_pf <- results(dds_pca, alpha = 0.05, test = "Wald", contrast = c("Location", "Supratentorial", "Posterior.fossa"))
 res_tab.st_pf <- data.frame(res.st_pf[order(res.st_pf$padj)[1:5000],])
 res_tab.st_pf %>% 
@@ -445,6 +445,10 @@ write.table(x = st_gsea_file,
 source(file = "ssGSEA.R")
 library(readxl)
 
+fid <- "norm_counts.gct" 
+writeLines(c("#1.2", paste(nrow(counts(dds_pca, normalized=TRUE)), ncol(counts(dds_pca, normalized=TRUE)) - 2, collapse="\t")), fid, sep="\n")
+write.table(counts(dds_pca, normalized=TRUE), file=fid, quote=FALSE, row.names=FALSE, col.names=TRUE, sep="\t", append = TRUE)
+
 genesets <- read_excel("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/GSEA/Immune_metagenes.xlsx")
 genesets <- genesets %>%
   select(Metagene, `Cell type`)
@@ -456,13 +460,13 @@ for (i in 1:length(celltypes)) {
 }
 
 logcounts <- log2(counts(dds_pca, normalized=TRUE) + 1)
-system.time(assign('res', ssgsea(logcounts, celltype_genes, scale = FALSE, norm = FALSE)))
-mat = (res - rowMeans(res))/(rowSds(as.matrix(res)))[row(res)]
-a <- t(mat[28,])
-Heatmap(mat,
+system.time(assign('ssGSEA_res', ssgsea(logcounts, celltype_genes, scale = FALSE, norm = FALSE)))
+ssGSEA_res = (ssGSEA_res - rowMeans(ssGSEA_res))/(rowSds(as.matrix(ssGSEA_res)))[row(ssGSEA_res)]
+Heatmap(ssGSEA_res,
         clustering_distance_columns = "manhattan",
         top_annotation = HeatmapAnnotation(Location = covariate_data$Location,
                                            Sex = covariate_data$Sex,
+                                           Age = covariate_data$Age,
                                            col = col_annotations,
                                            show_legend = TRUE),
         show_row_names = TRUE,
