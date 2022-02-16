@@ -2,9 +2,9 @@
 
 wd <- "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/"
 setwd(wd)
+
 ########## Load data ##########
 library(Seurat)
-
 # Compile all patient IDs. Make Seurat objects with for-loop
 patient_ids <- list.files(path = paste0(wd, "Data/Vladoiu_2019/"))
 for (patient in patient_ids) {
@@ -41,70 +41,47 @@ hist(pa.combined$percent.mito)
 table(pa.combined$percent.mito < 0.05) # 4939 cells have >5% mitochondrial gene expression
 head(pa.combined@meta.data)
 VlnPlot(object = pa.combined,
-        features = c("nCount_RNA", "nFeature_RNA", "percent.mito"), nCol = 3,  point.size.use = 0.1)
-VlnPlot(pa.combined, features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), ncol = 3)
+        features = c("nCount_RNA", "nFeature_RNA", "percent.mito"), 
+        ncol = 3, group.by = "orig.ident", pt.size = 0)
 
+# Filter cells that have < 200 and > 5000 genes expressed, and > 10% mitochondria reads
+pa.combined <- subset(x = pa.combined, 
+                      subset = nFeature_RNA > 200 & nFeature_RNA < 5000 & percent.mito < 10)
+# we are left with 15823 cells
 
-scpa <- NormalizeData(scpa, normalization.method = "LogNormalize", scale.factor = 10000)
-scpa <- FindVariableFeatures(scpa, selection.method = "vst", nfeatures = 4000)
-scpa <- ScaleData(scpa)
-scpa <- RunPCA(scpa)
+##### Split combined data-set by patient #####
+# Normalize and find variable features separately
+pa.separated <- SplitObject(pa.combined, split.by = "orig.ident")
+pa.separated <- lapply(X = pa.separated, FUN = function(x) {
+  x <- NormalizeData(x, normalization.method = "LogNormalize", scale.factor = 1e4)
+  x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000)
+})
 
-VizDimLoadings(scpa, dims = 1:2, reduction = "pca")
-DimPlot(scpa, reduction = "pca")
-DimHeatmap(scpa, dims = 1:10, cells = 500, balanced = TRUE)
+# Find genes to integrate samples by
+features <- SelectIntegrationFeatures(object.list = pa.separated)
+pa.anchors <- FindIntegrationAnchors(object.list = pa.separated, anchor.features = features)
+pa.combined <- IntegrateData(anchorset = pa.anchors)
 
-ElbowPlot(scpa, ndims = 30) # continue with 15 dims
+##### Process Integrated Data Set #####
+DefaultAssay(pa.combined) <- "integrated"
+pa.combined <- FindVariableFeatures(object = pa.combined,
+                                    selection.method = "vst",
+                                    nfeatures = 2000)
+pa.combined <- ScaleData(pa.combined)
 
-### Find clusters ###
-scpa <- FindNeighbors(scpa, reduction = "pca", dims = 1:15)
+########## Clustering ##########
+pa.combined <- RunPCA(pa.combined, features = VariableFeatures(object = pa.combined))
+VizDimLoadings(pa.combined, dims = 1:2, reduction = "pca")
+DimPlot(pa.combined, reduction = "pca")
+ElbowPlot(pa.combined, ndims = 30) # continue with 15 dims
 
-for (res in c(0.1, 0.25)) {
-  scpa <- FindClusters(scpa, graph.name = "RNA_snn", resolution = res, algorithm = 1)
-}
-scpa <- RunTSNE(scpa, dims = 1:20)
+pa.combined <- RunUMAP(pa.combined, dims = 1:20)
+pa.combined <- FindNeighbors(pa.combined, dims = 1:20)
+pa.combined <- FindClusters(pa.combined, resolution = 0.2)
+DimPlot(pa.combined, reduction = "umap", split.by = "orig.ident") 
 
-plot_grid(ncol = 2, 
-          DimPlot(scpa, reduction = "tsne", group.by = "RNA_snn_res.0.1"),
-          DimPlot(scpa, reduction = "tsne", group.by = "RNA_snn_res.0.25"))
-
-set.clust = "RNA_snn_res.0.1"
-scpa <- SetIdent(scpa, value = set.clust)
-DimPlot(scpa, reduction = "tsne", label = TRUE, repel = TRUE)
-
-genes_plot <- c("APOD", "IL32", "PDGFRA", "CCL3", "SOD2", "TMEM119", "P2RY12", "S100A9", "CX3CR1")
-FeaturePlot(scpa, features = genes_plot, reduction = "tsne", coord.fixed = TRUE, ncol = 3, combine = TRUE)
-
-### Annotate clusters ###
-scpa <- RenameIdents(scpa,
-                     `0` = "Tumor",
-                     `1` = "Microglia",
-                     `2` = "Tumor",
-                     `3` = "Tumor",
-                     `4` = "T-cell",
-                     `5` = "Microglia",
-                     `6` = "Peripheral macrophage")
-DimPlot(scpa, label = TRUE, repel = TRUE, label.box = TRUE, label.size = 3, label.color = "white")
-
-marker_genes <- FindAllMarkers(scpa, logfc.threshold = 0.25, only.pos = TRUE, assay = "RNA")
-top10 <- marker_genes %>% group_by(cluster) %>% top_n(-10, wt = p_val_adj)
-
-par(mfrow = c(2, 3))
-for (i in unique(top10$cluster)) {
-  barplot(sort(setNames(top10$avg_log2FC, top10$gene)[top10$cluster == i], F), horiz = T,
-          las = 1, main = paste0(i, " vs. rest"), border = "white", yaxs = "i")
-}
-
-### Figures ###
-DotPlot(scpa, features = rev(as.character(unique(top10$gene))), group.by = set.clust, assay = "RNA") + 
-  theme(axis.text.y = element_text(size = 5)) +
-  coord_flip()
-
-scpa.updated <- ScaleData(scpa, features = as.character(unique(top10$gene), assay = "RNA"))
-scpa.updated$CellCluster <- scpa.updated@active.ident
-DoHeatmap(scpa.updated, features = as.character(unique(top10$gene)), size = 2, draw.lines = TRUE) +
-  scale_fill_continuous() + 
-  theme(axis.text.y = element_text(size = 5))
+save(pa.combined,
+     file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/SeuratObject_16.02.2022.RData")
 
 ########## Make Single-Cell Expression Set for MuSiC ##########
 library(Biobase)
