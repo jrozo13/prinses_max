@@ -17,8 +17,12 @@ col_annotations <- list(
   Age = colorRamp2(c(0,20), c("#edf8e9", "#74c476"))
 )
 
+wd <- "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/"
+setwd(wd)
+fwd <- paste0(wd, "PA/Analysis/Figures/") # figure working directory
+
 ########## Prepare Data ##########
-meta_data <- read.csv(file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PA_cohort_metadata.csv")
+meta_data <- read.csv(file = "PA/PA_Data/PA_cohort_metadata.csv")
 unique_samples <- meta_data$Sample.ID
 covariate_data <- meta_data %>% column_to_rownames(var = "Sample.ID") %>% 
   select("gender", "Age..years.", "location_updated", "Primary.or.recurrent.") %>%
@@ -28,12 +32,12 @@ covariate_data$Location <- as.factor(covariate_data$Location)
 covariate_data$Sex <- as.factor(covariate_data$Sex)
 unique_samples <- rownames(covariate_data)
 
-load_data <- readRDS("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/Data/PMC/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
+load_data <- readRDS("Data/PMC/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
 count_data <- load_data$rawCounts %>% select(unique_samples)
 cpm_data <- load_data$counts %>% data.frame() %>% select(unique_samples)
 rm(load_data)
 
-xy_genes <- read.delim2("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/xy_genes.txt", header = TRUE, sep = "\t", dec = ".")
+xy_genes <- read.delim2("PA/PA_Data/xy_genes.txt", header = TRUE, sep = "\t", dec = ".")
 
 ## remove x and y linked genes
 genes_to_use <- setdiff(rownames(count_data), xy_genes$Approved.symbol)
@@ -46,10 +50,11 @@ varFeatures <- names(varGenes)[order(varGenes, decreasing = T)][c(1:nFeatures)]
 dataScale <- apply(countsLog, 2, function(x) (x - meanGenes)/varGenes)
 
 # save(count_data, dataScale, varFeatures, covariate_data, 
-#      file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_Data_09.02.2022.RData")
+#      file = paste0(wd, "PA/PA_Data/PiloA_Data_09.02.2022.RData"))
 
 ########## Whole transcriptome analysis ##########
-load(file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_Data_09.02.2022.RData")
+load(file = "PA/PA_Data/PiloA_Data_09.02.2022.RData")
+
 ### Dimensionality reduction ###
 ### PCA ###
 library(DESeq2)
@@ -100,15 +105,14 @@ umap_plot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
   ylim(c(-2.7, 2.7)) +
   xlim(c(-2.7, 2.7))
 
-pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/UMAP.pdf",
-    width = 8, height = 6)
+pdf(paste0(fwd, "UMAP.pdf"), width = 8, height = 6)
 print(umap_plot)
 dev.off()
 
 ### Unsupervised clustering ###
 library(ComplexHeatmap)
 # Identify protein-coding genes
-annotations_ahb <- read.csv("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/GSEA/annotations_ahb.csv")
+annotations_ahb <- read.csv("PA/Analysis/GSEA/annotations_ahb.csv")
 coding_genes <- annotations_ahb$gene_name[annotations_ahb$gene_biotype == "protein_coding"]
 varFeatures_coding <- varFeatures[varFeatures %in% coding_genes]
 
@@ -127,7 +131,7 @@ heatmap <- Heatmap(corr_res,
         show_row_names = FALSE,
         show_column_names = FALSE,
         show_row_dend = FALSE)
-pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/heatmap.pdf")
+pdf(paste0(fwd, "heatmap.pdf"))
 print(heatmap)
 dev.off()
 
@@ -177,7 +181,7 @@ ranks <- res_tab.spinal %>%
   summarize(stat=mean(stat)) %>%
   deframe()
 
-pathways.hallmark <- gmtPathways("/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/h.all.v7.4.symbols.gmt")
+pathways.hallmark <- gmtPathways("PA/PA_DataSets/h.all.v7.4.symbols.gmt")
 fgseaRes <- fgsea(pathways = pathways.hallmark, stats = ranks, nperm = 1000)
 fgseaResTidy <- fgseaRes %>%
   as_tibble() %>%
@@ -299,7 +303,7 @@ spOE_GO <- enrichGO(gene = sigOE_spinal,
           showCategory = 20,
           font.size = 8,
           title = "Pathways enriched in spinal tumors")
-pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/spinal_GO.pdf")
+pdf(paste0(fwd, "spinal_GO.pdf"))
 par(mfrow = c(1, 2))
 print(spUE_GO)
 print(spOE_GO)
@@ -310,7 +314,7 @@ spinal_gsea_file <- res_tab.spinal %>%
   select(rowname, log2FoldChange) %>%
   arrange(-log2FoldChange)
 write.table(x = spinal_gsea_file, 
-            file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/spinal_geneList.txt",
+            file = paste0(wd, "PA/PA_Data/spinal_geneList.txt"),
             sep = "\t",
             row.names = FALSE)
 
@@ -361,7 +365,7 @@ pfOE_GO <- enrichGO(gene = sigOE_pf,
           font.size = 8,
           title = "Pathways enriched in posterior fossa tumors")
 
-pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/pf_GO.pdf")
+pdf(paste0(fwd, "pf_GO.pdf"))
 par(mfrow = c(1, 2))
 print(pfUE_GO)
 print(pfOE_GO)
@@ -372,7 +376,7 @@ pf_gsea_file <- res_tab.pf %>%
   select(rowname, log2FoldChange) %>%
   arrange(-log2FoldChange)
 write.table(x = pf_gsea_file, 
-            file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/pf_geneList.txt",
+            file = "PA/PA_Data/pf_geneList.txt",
             sep = "\t",
             row.names = FALSE)
 
@@ -423,7 +427,7 @@ stOE_GO <- enrichGO(gene = sigOE_st,
           font.size = 8,
           title = "Pathways enriched in supratentorial tumors")
 
-pdf("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/Figures/st_GO.pdf")
+pdf(paste0(fwd, "st_GO.pdf"))
 par(mfrow = c(1, 2))
 print(stUE_GO)
 print(stOE_GO)
@@ -434,12 +438,12 @@ st_gsea_file <- res_tab.st %>%
   select(rowname, log2FoldChange) %>%
   arrange(-log2FoldChange)
 write.table(x = st_gsea_file, 
-            file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/st_geneList.txt",
+            file = paste0(wd, "PA/PA_Data/st_geneList.txt"),
             sep = "\t",
             row.names = FALSE)
 
 # save(annotations_ahb, dds_pca, dds_sp, dds_pf, dds_st, 
-#      file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PiloA_GSEA_13.02.2022.RData")
+#      file = paste0(wd, "PA/PA_Data/PiloA_GSEA_13.02.2022.RData"))
 
 ########## Single sample GSEA ##########
 source(file = "ssGSEA.R")
@@ -449,7 +453,7 @@ fid <- "norm_counts.gct"
 writeLines(c("#1.2", paste(nrow(counts(dds_pca, normalized=TRUE)), ncol(counts(dds_pca, normalized=TRUE)) - 2, collapse="\t")), fid, sep="\n")
 write.table(counts(dds_pca, normalized=TRUE), file=fid, quote=FALSE, row.names=FALSE, col.names=TRUE, sep="\t", append = TRUE)
 
-genesets <- read_excel("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/Analysis/GSEA/Immune_metagenes.xlsx")
+genesets <- read_excel("PA/Analysis/GSEA/Immune_metagenes.xlsx")
 genesets <- genesets %>%
   select(Metagene, `Cell type`)
 celltypes <- unique(genesets$`Cell type`)
@@ -570,7 +574,7 @@ ggplot(data = deconv_byLocation[deconv_byLocation$Cluster == "T.cell",],
         axis.title = element_text(size = 14),
         panel.grid.minor = element_line(colour = "grey90")) +
   scale_y_continuous(name="Proportion of T cells", limits=c(0, 0.19), expand = c(0,0))
-# ggsave(filename = "/Users/jrozowsky/Documents/PMC/PA/PA_Figures/T.cell_deconv.png", plot = last_plot(),
+# ggsave(filename = paste0(fwd, "T.cell_deconv.png"), plot = last_plot(),
 #        width = 10, height = 7)
 
 compare_means(Proportion ~ Location,  data = deconv_byLocation[deconv_byLocation$Cluster == "Microglia",])
@@ -587,7 +591,7 @@ ggplot(data = deconv_byLocation[deconv_byLocation$Cluster == "Microglia",],
         axis.title = element_text(size = 14),
         panel.grid.minor = element_line(colour = "grey90")) +
   scale_y_continuous(name="Proportion of Microglia", limits=c(0, 0.55), expand = c(0,0))
-# ggsave(filename = "/Users/jrozowsky/Documents/PMC/PA/PA_Figures/Microglia_deconv.png", plot = last_plot(),
+# ggsave(filename = paste0(fwd, "Microglia_deconv.png"), plot = last_plot(),
 #        width = 10, height = 7)
 
 compare_means(Proportion ~ Location,  data = deconv_byLocation[deconv_byLocation$Cluster == "Tumor",])
@@ -604,7 +608,7 @@ ggplot(data = deconv_byLocation[deconv_byLocation$Cluster == "Tumor",],
         axis.title = element_text(size = 14),
         panel.grid.minor = element_line(colour = "grey90")) +
   scale_y_continuous(name="Proportion of Tumor cells", limits=c(0.3, 1), expand = c(0,0))
-# ggsave(filename = "/Users/jrozowsky/Documents/PMC/PA/PA_Figures/Tumor_deconv.png", plot = last_plot(),
+# ggsave(filename = paste0(fwd, "Tumor_deconv.png"), plot = last_plot(),
 #        width = 10, height = 7)
 
 ########## CIBERSORTx ##########
