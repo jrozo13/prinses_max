@@ -478,7 +478,7 @@ Heatmap(ssGSEA_res,
         show_row_dend = TRUE)
 
 ########## Immune Panel ##########
-immune_genes <- read_excel("Documents/PMC/PA/PA_DataSets/LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx", 
+immune_genes <- read_excel("PA/PA_DataSets/LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx", 
                                                                                sheet = "Annotations", skip = 1)
 immune_genes <- immune_genes$`Gene Name`[1:770]
 immune_genes <- intersect(immune_genes, varFeatures)
