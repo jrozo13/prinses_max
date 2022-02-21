@@ -235,6 +235,7 @@ library(org.Hs.eg.db)
 library(fgsea)
 library(clusterProfiler)
 library(DESeq2)
+load(file = paste0(wd, "PA/PA_Data/PiloA_GSEA_13.02.2022.RData"))
 
 covariate_data <- covariate_data %>%
   mutate(Spinal_Loc = ifelse(Location == "Spinal", "Spinal", "Not.spinal")) %>%

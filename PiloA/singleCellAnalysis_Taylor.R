@@ -76,8 +76,11 @@ pa.separated <- lapply(X = pa.separated, FUN = function(x) {
 })
 
 # Find genes to integrate samples by
+
+keep_features <- c("TMEM119", "P2RY12", "CD163", "CCL2", "ITGAL", "GFAP", "CXCL11", "MOG", "PLP1", "TOX", "PDCD1", "LAG3", "TIGIT")
+
 features <- SelectIntegrationFeatures(object.list = pa.separated)
-pa.anchors <- FindIntegrationAnchors(object.list = pa.separated, anchor.features = features)
+pa.anchors <- FindIntegrationAnchors(object.list = pa.separated, anchor.features = c(features, keep_features))
 pa.combined <- IntegrateData(anchorset = pa.anchors)
 
 ##### Process Integrated Data Set #####
@@ -85,43 +88,104 @@ DefaultAssay(pa.combined) <- "integrated"
 pa.combined <- FindVariableFeatures(object = pa.combined,
                                     selection.method = "vst",
                                     nfeatures = 2000)
-pa.combined <- ScaleData(pa.combined)
+pa.combined <- ScaleData(pa.combined, do.center = TRUE)
 
 ########## Clustering ##########
 pa.combined <- RunPCA(pa.combined, features = VariableFeatures(object = pa.combined))
 VizDimLoadings(pa.combined, dims = 1:2, reduction = "pca")
-DimPlot(pa.combined, reduction = "pca")
+DimPlot(pa.combined, reduction = "pca", group.by = "orig.ident")
 
 # Determine number of dimensions to continue analysis with
 # Do this by: JackStraw and Elbow plots
-pa.combined <- JackStraw(pa.combined, num.replicate = 100)
-pa.combined <- ScoreJackStraw(pa.combined, dims = 1:20)
-JackStrawPlot(pbmc, dims = 1:20)
-ElbowPlot(pa.combined, ndims = 30) # continue with20 dims
+pa.combined <- JackStraw(pa.combined, num.replicate = 100, dims = 50)
+pa.combined <- ScoreJackStraw(pa.combined, dims = 1:50)
+JackStrawPlot(pa.combined, dims = 1:50)
+ElbowPlot(pa.combined, ndims = 50) # continue with 30 dims
 
-pa.combined <- RunUMAP(pa.combined, dims = 1:20)
-pa.combined <- FindNeighbors(pa.combined, dims = 1:20)
-pa.combined <- FindClusters(pa.combined, resolution = 0.2)
-# save(pa.combined, file = paste0(wd, "PA/PA_Data/SeuratObject_16.02.2022.RData"))
+pa.combined <- RunUMAP(pa.combined, dims = 1:30, n.neighbors = 30, min.dist = 0.5)
+pa.combined <- FindNeighbors(pa.combined, dims = 1:30, annoy.metric = "euclidean")
+pa.combined <- FindClusters(pa.combined, resolution = 0.3, group.singletons = TRUE)
+print(DimPlot(pa.combined, reduction = "umap"))
+save(pa.combined, file = paste0(wd, "PA/PA_Data/SeuratObject_16.02.2022.RData"))
 
+##### Functional annotation #####
+library(ComplexHeatmap)
 load("PA/PA_Data/SeuratObject_16.02.2022.RData")
-DimPlot(pa.combined, reduction = "umap", group.by = "orig.ident") 
 DimPlot(pa.combined, reduction = "umap", split.by = "orig.ident") 
 
+pdf(paste0(fwd, "scUMAP_cluster.pdf"), width = 6, height = 6)
+print(DimPlot(pa.combined, reduction = "umap"))
+dev.off()
+
+pdf(paste0(fwd, "scUMAP_patient.pdf"), width = 6, height = 6)
+print(DimPlot(pa.combined, reduction = "umap", group.by = "orig.ident"))
+dev.off()
+
+markers <- FindAllMarkers(pa.combined, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top5 <- markers %>%
+  group_by(cluster) %>%
+  top_n(n = 5, wt = avg_log2FC)
+scDEG_heatmap <- DoHeatmap(pa.combined, features = top5$gene) + NoLegend()
+
+pa.combined_heatmap <- AverageExpression(pa.combined, 
+                       assays = "integrated",
+                       features = top5$gene,
+                       group.by = "seurat_clusters",
+                       return.seurat = TRUE)
+
+col_fun = colorRamp2(c(-3, 0, 3), c("navy", "white", "red"))
+ht_list <- Heatmap(pa.combined_heatmap@assays$integrated@scale.data,
+        cluster_rows = FALSE,
+        cluster_columns = FALSE, 
+        border = "black",
+        column_split = c(0:10),
+        col = col_fun,
+        show_column_names = FALSE, 
+        heatmap_legend_param = list(
+          title = "Relative expression",
+          direction = "horizontal",
+          at = c(-3, 0, 3),
+          border = "black",
+          legend_width = unit(6, "cm"),
+          title_position = "topcenter"
+          ))
+
+pdf(paste0(fwd, "scClusterDEGs.pdf"), width = 6, height = 12)
+draw(ht_list, heatmap_legend_side = "bottom")
+dev.off()
+
+save(markers, pa.combined_heatmap, file = paste0(wd, "PA/PA_Data/scAnalysis_16.02.2022.RData"))
+
+##### SingleR #####
+Seurat::FindSubCluster()
+
+##### SingleR #####
+library(SingleR)
+library(celldex)
+
+
+########## CNV ##########
+# library(infercnv)
+# counts_matrix = as.matrix(pa.combined@assays$RNA@counts[,colnames(pa.combined)])
 
 
 ########## Make Single-Cell Expression Set for MuSiC ##########
 library(Biobase)
-sc_cluster <- data.frame(scpa@active.ident, scpa@meta.data$orig.ident)
-names(sc_cluster) <- c("Cluster", "Tumor")
-sc_cluster$Tumor <- sample(sc_cluster$Tumor)
+sc_cluster <- data.frame(pa.combined@active.ident, pa.combined@meta.data$orig.ident)
+names(sc_cluster) <- c("Cluster", "Sample")
+table(sc_cluster$Cluster, sc_cluster$Sample)
 
 phenoData <- AnnotatedDataFrame(sc_cluster)
 
-assayData <- as.matrix(scpa@assays$RNA@data)
+assayData <- as.matrix(pa.combined@assays$RNA@data)
 
 # Note: have to make sure that the order of the cells in the assay and pheno data match
 # check: colnames(assayData) == rownames(phenoData@data) or 
 # identical(colnames(assayData), rownames(phenoData@data))
-SinglePA_eset <- ExpressionSet(assayData = assayData, phenoData = phenoData)
-saveRDS(SinglePA_eset, "/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/PA_singleCellReitman.RData")
+Vladoiu_eset <- ExpressionSet(assayData = assayData, phenoData = phenoData)
+save(Vladoiu_eset,
+     file = paste0(wd, "PA/Analysis/Deconvolution/Vladoiu_scEset.RData"))
+
+########## Make Single-Cell Expression Set for MuSiC ##########
+load("Data/PMC/BulkPA_eset.RData")
+
