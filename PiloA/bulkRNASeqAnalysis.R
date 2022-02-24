@@ -236,6 +236,7 @@ library(fgsea)
 library(clusterProfiler)
 library(DESeq2)
 load(file = paste0(wd, "PA/PA_Data/PiloA_GSEA_13.02.2022.RData"))
+annotations_ahb %>% filter(gene_biotype == "protein_coding") %>% pull(gene_name) -> protein_genes
 
 covariate_data <- covariate_data %>%
   mutate(Spinal_Loc = ifelse(Location == "Spinal", "Spinal", "Not.spinal")) %>%
@@ -318,6 +319,13 @@ write.table(x = spinal_gsea_file,
             file = paste0(wd, "PA/PA_Data/spinal_geneList.txt"),
             sep = "\t",
             row.names = FALSE)
+spinal_gProf_list <- res_tab.spinal %>%
+  filter(padj < 0.05 & log2FoldChange >= 0) %>%
+  pull(rowname)
+spinal_gProf_list[spinal_gProf_list %in% protein_genes] -> spinal_gProf_list
+write(x = spinal_gProf_list,
+      file = paste0(wd, "PA/PA_Data/spinal_OE_geneList.txt"),
+      sep = "\t")
 
 #### PF vs others ####
 dds_pf <- DESeqDataSetFromMatrix(countData = count_data,
@@ -381,6 +389,14 @@ write.table(x = pf_gsea_file,
             sep = "\t",
             row.names = FALSE)
 
+pf_gProf_list <- res_tab.pf %>%
+  filter(padj < 0.05 & log2FoldChange >= 0) %>%
+  pull(rowname)
+pf_gProf_list[pf_gProf_list %in% protein_genes] -> pf_gProf_list
+write(x = pf_gProf_list,
+      file = paste0(wd, "PA/PA_Data/pf_OE_geneList.txt"),
+      sep = "\t")
+
 #### ST vs others ####
 dds_st <- DESeqDataSetFromMatrix(countData = count_data,
                                  colData = covariate_data,
@@ -443,6 +459,14 @@ write.table(x = st_gsea_file,
             sep = "\t",
             row.names = FALSE)
 
+st_gProf_list <- res_tab.st %>%
+  filter(padj < 0.05 & log2FoldChange >= 0) %>%
+  pull(rowname)
+st_gProf_list[st_gProf_list %in% protein_genes] -> st_gProf_list
+write(x = st_gProf_list,
+      file = paste0(wd, "PA/PA_Data/st_OE_geneList.txt"),
+      sep = "\t")
+
 # save(annotations_ahb, dds_pca, dds_sp, dds_pf, dds_st, 
 #      file = paste0(wd, "PA/PA_Data/PiloA_GSEA_13.02.2022.RData"))
 
@@ -479,36 +503,24 @@ Heatmap(ssGSEA_res,
         show_row_dend = TRUE)
 
 ########## Immune Panel ##########
-immune_genes <- read_excel("PA/PA_DataSets/LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx", 
+immune_genes <- read_excel("PA/PA_Data/LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx", 
                                                                                sheet = "Annotations", skip = 1)
 immune_genes <- immune_genes$`Gene Name`[1:770]
-immune_genes <- intersect(immune_genes, varFeatures)
 
-dataScale_immune <- apply(countsLog[immune_genes,], 2, function(x) (x - meanGenes[immune_genes])/varGenes[immune_genes])
-remove <- c("ICAM4")
-dataScale_immune <- dataScale_immune[!rownames(dataScale_immune) %in% remove, ]
+countsLog_immune <- log(cpm_data[immune_genes,] + 1)
+varGenes_immune <- apply(countsLog_immune, 1, var)
+sig_immuneGenes <- names(varGenes_immune[which(varGenes_immune > 0.75)])
 
-dataLog_immune <- countsLog[immune_genes,] %>% as.matrix()
-
-Heatmap(dataScale_immune,
-        clustering_distance_columns = "pearson",
-        clustering_distance_rows = "pearson",
+mat <- dataScale[sig_immuneGenes[sig_immuneGenes %in% rownames(dataScale)],] %>% as.matrix()
+Heatmap(mat,
+        clustering_distance_columns = "euclidean",
+        clustering_distance_rows = "euclidean",
         top_annotation = HeatmapAnnotation(Location = covariate_data$Location,
                                            col = col_annotations, 
                                            show_legend = TRUE),
-        show_row_names = FALSE,
+        show_row_names = TRUE,
         show_column_names = FALSE,
         show_row_dend = TRUE)
-
-library(pheatmap)
-pheatmap(mat = dataLog_immune,
-         clustering_distance_cols = "pearson",
-         annotation_col = covariate_data %>% select(Location, Sex),
-         annotation_colors = col_annotations,
-         scale = "row",
-         show_rownames = FALSE,
-         show_colnames = FALSE
-          )
 
 ########## Deconvolution analysis ##########
 ### Make bulk and single-cell expression sets

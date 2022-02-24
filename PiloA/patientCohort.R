@@ -2,6 +2,27 @@
 # Last updated: 04/02/2022
 # Note: skip to bottom to run OncoPrint
 
+########## Initialize ##########
+## Install global packages ##
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(readxl)
+library(RColorBrewer)
+library(circlize)
+col_annotations <- list(
+  Sex = c("M" = "skyblue", "F" = "pink"),
+  Location = c("Spinal" = "#EF553B", 
+               "Posterior fossa" = "#636EFA", 
+               "Supratentorial" = "#00CC96"),
+  Age = colorRamp2(c(0,20), c("#edf8e9", "#74c476"))
+)
+
+wd <- "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/"
+setwd(wd)
+fwd <- paste0(wd, "PA/Analysis/Figures/") # figure working directory
+
+
 ########## Cohort ########## 
 load_data <- readRDS("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/Data/PMC/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
 meta_data <- load_data$metaData
@@ -116,16 +137,9 @@ alter_fun = list(
   Deletion = alter_graphic("rect", fill = col["Deletion"]),
   SNV = alter_graphic("rect", height = 0.33, fill = col["SNV"]))
 color_set <- brewer.pal(4, "Set1")
-col_annotations <- list(
-  Sex = c("M" = "skyblue", "F" = "pink"),
-  Location = c("Spinal" = "#f2f0f7", 
-               "Posterior fossa" = "#6a51a3", 
-               "Supratentorial" = "#9e9ac8"),
-  `Age (years)` = colorRamp2(c(0,20), c("#edf8e9", "#74c476"))
-)
 
 mat <- read.csv("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PA_for_oncoprint.csv", header = T, row.names = 1)
-combined <- read.csv("/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/PA_cohort_metadata.csv",
+combined <- read.csv(paste0(wd, "PA/PA_Data/PA_cohort_metadata.csv"),
                      header = T, row.names = 1)
 
 age <- combined$Age..years.
@@ -142,7 +156,10 @@ oncoprint_PA <- oncoPrint(mat,
           alter_fun_is_vectorized = FALSE,
           column_order = sample_order,
           top_annotation = HeatmapAnnotation(cbar = anno_oncoprint_barplot(),
-                                             `Age (years)` = age,
+                                             Age = age,
                                              Location = location,
                                              Sex = sex,
                                              col = col_annotations))
+pdf(paste0(fwd, "oncoplot_24.02.22.pdf"), width = 10, height = 5)
+print(oncoprint_PA)
+dev.off()
