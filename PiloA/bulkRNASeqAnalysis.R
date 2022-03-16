@@ -1,5 +1,5 @@
 # Pilocytic astrocytoma transcriptomic analysis
-# Last updated: 11/01/2022
+# Last updated: 11/03/2022
 
 ########## Initialize ##########
 ## Install global packages ##
@@ -20,6 +20,9 @@ col_annotations <- list(
 wd <- "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/"
 setwd(wd)
 fwd <- paste0(wd, "PA/Analysis/Figures/") # figure working directory
+
+annotations_ahb <- read.csv("PA/Analysis/GSEA/annotations_ahb.csv")
+annotations_ahb %>% filter(gene_biotype == "protein_coding") %>% pull(gene_name) -> protein_genes
 
 ########## Prepare Data ##########
 meta_data <- read.csv(file = "PA/PA_Data/PA_cohort_metadata.csv")
@@ -112,9 +115,7 @@ dev.off()
 ### Unsupervised clustering ###
 library(ComplexHeatmap)
 # Identify protein-coding genes
-annotations_ahb <- read.csv("PA/Analysis/GSEA/annotations_ahb.csv")
-coding_genes <- annotations_ahb$gene_name[annotations_ahb$gene_biotype == "protein_coding"]
-varFeatures_coding <- varFeatures[varFeatures %in% coding_genes]
+varFeatures_coding <- varFeatures[varFeatures %in% protein_genes]
 
 # calculate inter-patient correlation based on protein-coding gene expression
 corr_res <- cor(dataScale[varFeatures_coding[1:510],], method = "pearson")
@@ -123,12 +124,13 @@ heatmap <- Heatmap(corr_res,
         clustering_distance_rows = "euclidean",
         clustering_distance_columns = "euclidean",
         column_dend_height = unit(4, "cm"),
+        row_names_gp = gpar(fontsize = 8),
         top_annotation = HeatmapAnnotation(Age = covariate_data$Age,
                                            Sex = covariate_data$Sex,
                                            Location = covariate_data$Location,
                                            col = col_annotations, 
                                            show_legend = TRUE),
-        show_row_names = FALSE,
+        show_row_names = TRUE,
         show_column_names = FALSE,
         show_row_dend = FALSE)
 pdf(paste0(fwd, "heatmap.pdf"))
@@ -153,7 +155,7 @@ results = ConsensusClusterPlus(d,
                                plot=NULL)
 
 ########## Differential expression analysis ##########
-#### Spinal vs Supratentorial ####
+## Spinal vs Supratentorial ##
 res.sp_st <- results(dds_pca, alpha = 0.05, test = "Wald", contrast = c("Location", "Spinal", "Supratentorial"))
 res_tab.sp_st <- data.frame(res.sp_st[order(res.sp_st$padj)[1:5000],])
 res_tab.sp_st %>% 
@@ -171,7 +173,7 @@ res_tab.sp_st %>%
         plot.title = element_text(size = rel(1.5), hjust = 0.5),
         axis.title = element_text(size = rel(1.25)))
 
-### Do not run ###
+### Do not run
 ranks <- res_tab.spinal %>% 
   rownames_to_column() %>%
   dplyr::select(rowname, stat) %>%
@@ -193,7 +195,7 @@ ggplot(fgseaResTidy, aes(reorder(pathway, NES), NES)) +
        title="Hallmark pathways NES from GSEA") + 
   theme_minimal()
 
-#### Spinal vs PF ####
+## Spinal vs PF ##
 res.sp_pf <- results(dds_pca, alpha = 0.05, test = "Wald", contrast = c("Location", "Spinal", "Posterior.fossa"))
 res_tab.sp_pf <- data.frame(res.sp_pf[order(res.sp_pf$padj)[1:5000],])
 res_tab.sp_pf %>% 
@@ -211,7 +213,7 @@ res_tab.sp_pf %>%
         plot.title = element_text(size = rel(1.5), hjust = 0.5),
         axis.title = element_text(size = rel(1.25)))
 
-#### PF vs Supratentorial ####
+## PF vs Supratentorial ##
 res.st_pf <- results(dds_pca, alpha = 0.05, test = "Wald", contrast = c("Location", "Supratentorial", "Posterior.fossa"))
 res_tab.st_pf <- data.frame(res.st_pf[order(res.st_pf$padj)[1:5000],])
 res_tab.st_pf %>% 
@@ -246,7 +248,7 @@ covariate_data$Spinal_Loc <- as.factor(covariate_data$Spinal_Loc)
 covariate_data$PF_Loc <- as.factor(covariate_data$PF_Loc)
 covariate_data$ST_Loc <- as.factor(covariate_data$ST_Loc)
 
-#### Spinal vs others ####
+## Spinal vs others ##
 dds_sp <- DESeqDataSetFromMatrix(countData = count_data,
                               colData = covariate_data,
                               design = ~ Spinal_Loc)
@@ -257,6 +259,16 @@ res.spinal <- results(dds_sp, alpha = 0.05, test = "Wald", contrast = c("Spinal_
 res_tab.spinal <- data.frame(res.spinal[order(res.spinal$padj)[1:5000],])
 res_tab.spinal <- left_join(res_tab.spinal %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
 all_genes.spinal <- as.character(res_tab.spinal$gene_id)
+
+sig_num.spinal <- res_tab.spinal %>%
+  filter(padj < 0.001) %>%
+  pull(rowname) %>% length()
+# 539 genes are differentially expressed in spinal tumors vs other PAs
+top15_genes.spinal <- res_tab.spinal %>%
+  filter(log2FoldChange > 0) %>%
+  filter(rowname %in% protein_genes) %>%
+  arrange(padj) %>%
+  top_n(n = -15, padj) %>% pull(rowname)
 
 sigOE_spinal <- dplyr::filter(res_tab.spinal, padj < 0.05 & log2FoldChange > 0) %>%
   dplyr::select(gene_id) %>% na.omit()
@@ -327,7 +339,7 @@ write(x = spinal_gProf_list,
       file = paste0(wd, "PA/PA_Data/spinal_OE_geneList.txt"),
       sep = "\t")
 
-#### PF vs others ####
+## PF vs others ##
 dds_pf <- DESeqDataSetFromMatrix(countData = count_data,
                                  colData = covariate_data,
                                  design = ~ PF_Loc)
@@ -338,6 +350,16 @@ res.pf <- results(dds_pf, alpha = 0.05, test = "Wald", contrast = c("PF_Loc", "P
 res_tab.pf <- data.frame(res.pf[order(res.pf$padj)[1:5000],])
 res_tab.pf <- left_join(res_tab.pf %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
 all_genes.pf <- as.character(res_tab.pf$gene_id)
+
+sig_num.pf <- res_tab.pf %>%
+  filter(padj < 0.001) %>%
+  pull(rowname) %>% length()
+# 1736 genes are differentially expressed in PF tumors vs other PAs
+top15_genes.pf <- res_tab.pf %>%
+  filter(log2FoldChange > 0) %>%
+  filter(rowname %in% protein_genes) %>%
+  arrange(padj) %>%
+  top_n(n = -15, padj) %>% pull(rowname)
 
 sigOE_pf <- dplyr::filter(res_tab.pf, padj < 0.05 & log2FoldChange > 0) %>%
   dplyr::select(gene_id) %>% na.omit()
@@ -397,7 +419,7 @@ write(x = pf_gProf_list,
       file = paste0(wd, "PA/PA_Data/pf_OE_geneList.txt"),
       sep = "\t")
 
-#### ST vs others ####
+## ST vs others ##
 dds_st <- DESeqDataSetFromMatrix(countData = count_data,
                                  colData = covariate_data,
                                  design = ~ ST_Loc)
@@ -408,6 +430,16 @@ res.st <- results(dds_st, alpha = 0.05, test = "Wald", contrast = c("ST_Loc", "S
 res_tab.st <- data.frame(res.st[order(res.st$padj)[1:5000],])
 res_tab.st <- left_join(res_tab.st %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
 all_genes.st <- as.character(res_tab.st$gene_id)
+
+sig_num.st <- res_tab.st %>%
+  filter(padj < 0.001) %>%
+  pull(rowname) %>% length()
+# 1082 genes are differentially expressed in PF tumors vs other PAs
+top15_genes.st <- res_tab.st %>%
+  filter(log2FoldChange > 0) %>%
+  filter(rowname %in% protein_genes) %>%
+  arrange(padj) %>%
+  top_n(n = -15, padj) %>% pull(rowname)
 
 sigOE_st <- dplyr::filter(res_tab.st, padj < 0.05 & log2FoldChange > 0) %>%
   dplyr::select(gene_id) %>% na.omit()
@@ -470,9 +502,39 @@ write(x = st_gProf_list,
 # save(annotations_ahb, dds_pca, dds_sp, dds_pf, dds_st, 
 #      file = paste0(wd, "PA/PA_Data/PiloA_GSEA_13.02.2022.RData"))
 
+
+library(edgeR)
+logCPM <- cpm(count_data, prior.count = 2, log = TRUE)
+zScore <- t(scale(t(logCPM)))
+genes_for_fig <- c(top15_genes.pf[1:10], top15_genes.spinal[1:10], top15_genes.st[1:10])
+genes_for_fig <- genes_for_fig[genes_for_fig %in% rownames(dataScale)]
+mat_for_ht <- zScore[genes_for_fig,]
+
+sample_order_by_loc <- covariate_data %>%
+  arrange(Location) %>%
+  rownames()
+mat_for_ht[,sample_order_by_loc] -> mat_for_ht
+col_fun = colorRamp2(c(-1.5, 0, 1.5), c("blue", "white", "red"))
+ht_list <- Heatmap(mat_for_ht,
+                   border = "black",
+                   col = col_fun,
+                   show_column_names = FALSE,
+                   cluster_rows = FALSE,
+                   cluster_columns = FALSE,
+                   heatmap_legend_param = list(
+                     title = "Relative expression",
+                     direction = "horizontal",
+                     at = c(-2.5, 0, 2.5),
+                     border = "black",
+                     legend_width = unit(6, "cm"),
+                     title_position = "topcenter"
+                   ))
+draw(ht_list, heatmap_legend_side = "bottom")
+
 ########## Single sample GSEA ##########
-source(file = "ssGSEA.R")
+source(file = "prinses_max/PiloA/ssGSEA.R")
 library(readxl)
+library(DESeq2)
 
 fid <- "norm_counts.gct" 
 writeLines(c("#1.2", paste(nrow(counts(dds_pca, normalized=TRUE)), ncol(counts(dds_pca, normalized=TRUE)) - 2, collapse="\t")), fid, sep="\n")
@@ -490,17 +552,29 @@ for (i in 1:length(celltypes)) {
 
 logcounts <- log2(counts(dds_pca, normalized=TRUE) + 1)
 system.time(assign('ssGSEA_res', ssgsea(logcounts, celltype_genes, scale = FALSE, norm = FALSE)))
-ssGSEA_res = (ssGSEA_res - rowMeans(ssGSEA_res))/(rowSds(as.matrix(ssGSEA_res)))[row(ssGSEA_res)]
-Heatmap(ssGSEA_res,
-        clustering_distance_columns = "manhattan",
+ssGSEA_res.scale <- (ssGSEA_res - rowMeans(ssGSEA_res))/(rowSds(as.matrix(ssGSEA_res)))[row(ssGSEA_res)]
+dist <- cor(ssGSEA_res, method = "kendall")
+
+ssGSEA_ht <- Heatmap(ssGSEA_res.scale,
+        clustering_distance_rows = "euclidean",
+        clustering_distance_columns = "euclidean",
         top_annotation = HeatmapAnnotation(Location = covariate_data$Location,
-                                           Sex = covariate_data$Sex,
-                                           Age = covariate_data$Age,
                                            col = col_annotations,
                                            show_legend = TRUE),
         show_row_names = TRUE,
         show_column_names = FALSE,
-        show_row_dend = TRUE)
+        show_row_dend = TRUE,
+        heatmap_legend_param = list(
+          title = "Relative expression",
+          direction = "horizontal",
+          at = c(-3, 0, 3),
+          border = "black",
+          legend_width = unit(3, "cm"),
+          title_position = "topcenter"))
+
+pdf(paste0(fwd, "ssGSEA_clusters.pdf"), width = 9, height = 8)
+draw(ssGSEA_ht, heatmap_legend_side = "bottom")
+dev.off()
 
 ########## Immune Panel ##########
 immune_genes <- read_excel("PA/PA_Data/LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx", 
@@ -512,19 +586,32 @@ varGenes_immune <- apply(countsLog_immune, 1, var)
 sig_immuneGenes <- names(varGenes_immune[which(varGenes_immune > 0.75)])
 
 mat <- dataScale[sig_immuneGenes[sig_immuneGenes %in% rownames(dataScale)],] %>% as.matrix()
-Heatmap(mat,
-        clustering_distance_columns = "euclidean",
-        clustering_distance_rows = "euclidean",
-        top_annotation = HeatmapAnnotation(Location = covariate_data$Location,
-                                           col = col_annotations, 
-                                           show_legend = TRUE),
-        show_row_names = TRUE,
-        show_column_names = FALSE,
-        show_row_dend = TRUE)
+
+immuneMarker_ht <- Heatmap(mat,
+                           clustering_distance_columns = "kendall",
+                           clustering_distance_rows = "kendall",
+                           top_annotation = HeatmapAnnotation(Location = covariate_data$Location,
+                                                              col = col_annotations, 
+                                                              show_legend = TRUE),
+                           show_row_names = TRUE,
+                           show_column_names = FALSE,
+                           show_row_dend = TRUE,
+                           heatmap_legend_param = list(
+                             title = "Relative expression",
+                             direction = "horizontal",
+                             at = c(-3, 0, 3),
+                             border = "black",
+                             legend_width = unit(3, "cm"),
+                             title_position = "topcenter"))
+
+pdf(paste0(fwd, "immuneMarker_clusters.pdf"), width = 9, height = 8)
+draw(immuneMarker_ht, heatmap_legend_side = "bottom")
+dev.off()
+
 
 ########## Deconvolution analysis ##########
 ### Make bulk and single-cell expression sets
-scPA_eset <- readRDS("/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/PA_singleCellReitman.RDS")
+scPA_eset <- readRDS("PA/Analysis/Deconvolution/DWLS/PA_singleCellReitman.RDS")
 sc_genes <- rownames(scPA_eset@assayData[["exprs"]])
 meta_genes <- unique(intersect(sc_genes, rownames(count_data)))
 
@@ -546,7 +633,8 @@ sample_order <- deconv_res %>% arrange(-Tumor) %>% rownames()
 celltype_colors <- c("#F8766D", "seagreen3", "steelblue2", "#CF78FF")
 names(celltype_colors) <- c("Tumor", "Microglia", "T.cell", "Macrophage")
 deconv_all <- deconv_res %>%
-  mutate(Sample = as.character(rownames(deconv_res))) %>%
+  mutate(Sample = as.character(rownames(deconv_res))) 
+%>%
   gather(key = Cluster, value = Proportion, -Sample) %>%
   mutate(Cluster = factor(Cluster, levels = c("Macrophage", "T.cell", "Microglia", "Tumor")),
          Sample = factor(Sample, levels = sample_order))
@@ -625,14 +713,16 @@ ggplot(data = deconv_byLocation[deconv_byLocation$Cluster == "Tumor",],
 #        width = 10, height = 7)
 
 ########## CIBERSORTx ##########
-write.csv(count_data, file = "/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/Bulk_PA_forDeconv.csv")
+# write.csv(count_data, file = paste0(wd, "PA/Analysis/Deconvolution/CIBERSORTx/Bulk_PA_forDeconv.csv"))
 
-PA_cibersortx_LM22 <- read.csv("Documents/PMC/PA/PA_DataSets/PA_cibersortx_LM22.csv")
+PA_cibersortx_LM22 <- read.csv("PA/Analysis/Deconvolution/CIBERSORTx/PA_cibersortx_LM22.csv")
 PA_lm22 <- PA_cibersortx_LM22[,1:23] %>%
   column_to_rownames(var = "Mixture") %>%
   dplyr::select(!Dendritic.cells.resting) %>%
   as.matrix() %>% t()
 covariate_lm22 <- covariate_data[intersect(rownames(covariate_data), colnames(PA_lm22)),]
+PA_lm22 <- PA_lm22[,intersect(rownames(covariate_data), colnames(PA_lm22))]
+
 
 pheatmap(PA_lm22,
         show_heatmap_legend = FALSE,
@@ -648,3 +738,24 @@ pheatmap(mat = PA_lm22,
          annotation_col = covariate_data %>% dplyr::select(Location, Sex),
          annotation_colors = col_annotations,
          show_colnames = FALSE)
+
+lm22_ht <- Heatmap(PA_lm22,
+                           clustering_distance_columns = "kendall",
+                           clustering_distance_rows = "manhattan",
+                           top_annotation = HeatmapAnnotation(Location = covariate_data$Location,
+                                                              col = col_annotations, 
+                                                              show_legend = TRUE),
+                           show_row_names = TRUE,
+                           show_column_names = FALSE,
+                           show_row_dend = TRUE,
+                           heatmap_legend_param = list(
+                             title = "Cell type composition (%)",
+                             direction = "horizontal",
+                             at = c(0, 1.5),
+                             border = "black",
+                             legend_width = unit(3, "cm"),
+                             title_position = "topcenter"))
+
+pdf(paste0(fwd, "cibersort_clusters.pdf"), width = 9, height = 8)
+draw(lm22_ht, heatmap_legend_side = "bottom")
+dev.off()

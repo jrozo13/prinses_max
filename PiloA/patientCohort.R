@@ -160,6 +160,6 @@ oncoprint_PA <- oncoPrint(mat,
                                              Location = location,
                                              Sex = sex,
                                              col = col_annotations))
-pdf(paste0(fwd, "oncoplot_24.02.22.pdf"), width = 10, height = 5)
+pdf(paste0(fwd, "oncoplot_24.02.22.pdf"), width = 10, height = 5.5)
 print(oncoprint_PA)
 dev.off()

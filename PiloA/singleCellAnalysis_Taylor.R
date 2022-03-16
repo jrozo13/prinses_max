@@ -1,5 +1,5 @@
 # Single-cell Pilocytic Astrocytoma analysis (Vladoiu et al, 2019)
-# Last updated: 17/02/2022
+# Last updated: 14/03/2022
 
 ########## Initialize ##########
 ## Install global packages ##
@@ -106,11 +106,14 @@ pa.combined <- RunUMAP(pa.combined, dims = 1:30, n.neighbors = 30, min.dist = 0.
 pa.combined <- FindNeighbors(pa.combined, dims = 1:30, annoy.metric = "euclidean")
 pa.combined <- FindClusters(pa.combined, resolution = 0.3, group.singletons = TRUE)
 print(DimPlot(pa.combined, reduction = "umap"))
+FeaturePlot(pa.combined, features = "CD163")
+VlnPlot(pa.combined, features = "NLGN3", sort = TRUE) + NoLegend()
 save(pa.combined, file = paste0(wd, "PA/PA_Data/SeuratObject_16.02.2022.RData"))
 
 ##### Functional annotation #####
 library(ComplexHeatmap)
 load("PA/PA_Data/SeuratObject_16.02.2022.RData")
+load("PA/PA_Data/scAnalysis_16.02.2022.RData")
 DimPlot(pa.combined, reduction = "umap", split.by = "orig.ident") 
 
 pdf(paste0(fwd, "scUMAP_cluster.pdf"), width = 6, height = 6)
@@ -150,24 +153,73 @@ ht_list <- Heatmap(pa.combined_heatmap@assays$integrated@scale.data,
           title_position = "topcenter"
           ))
 
-pdf(paste0(fwd, "scClusterDEGs.pdf"), width = 6, height = 12)
+pdf(paste0(fwd, "scClusterDEGs_2.pdf"), width = 10, height = 12)
 draw(ht_list, heatmap_legend_side = "bottom")
 dev.off()
 
 save(markers, pa.combined_heatmap, file = paste0(wd, "PA/PA_Data/scAnalysis_16.02.2022.RData"))
 
 ##### SingleR #####
-Seurat::FindSubCluster()
-
-##### SingleR #####
 library(SingleR)
 library(celldex)
+ref.data <- celldex::HumanPrimaryCellAtlasData(ensembl = FALSE)
+# ensembl == TRUE: will use the ENSEMBL IDs
+predictions <- SingleR(as.SingleCellExperiment(pa.combined), 
+                       ref = ref.data,
+                       labels = ref.data$label.main,
+                       clusters = pa.combined$cluster.ident)
+cluster_idents <- data.frame(predictions@rownames, predictions@listData$labels)
 
+pa.combined[["cluster.ident"]] <- Idents(object = pa.combined)
+pa.combined <- RenameIdents(object = pa.combined,
+                            `0` = "Myeloid",
+                            `1` = "Tumor",
+                            `2` = "Myeloid",
+                            `3` = "Tumor",
+                            `4` = "Myeloid",
+                            `5` = "Tumor",
+                            `6` = "Leukeocyte",
+                            `7` = "Tumor",
+                            `8` = "Myeloid",
+                            `9` = "Myeloid",
+                            `10` = "Myeloid")
+plotScoreHeatmap(predictions)
+
+print(DimPlot(pa.combined, reduction = "umap"))
+
+#### Sub-cluster immune cells ###
+immune.obj <- subset(x = pa.combined, idents = c("Leukeocyte", "Myeloid"))
+DefaultAssay(immune.obj) <- "integrated"
+immune.obj <- RunUMAP(immune.obj, dims = 1:30, n.neighbors = 30, min.dist = 0.5)
+immune.obj <- FindNeighbors(immune.obj, dims = 1:30, annoy.metric = "euclidean")
+immune.obj <- FindClusters(immune.obj, resolution = 0.5, group.singletons = TRUE)
+print(DimPlot(immune.obj, reduction = "umap"))
+print(DimPlot(immune.obj, reduction = "umap", group.by = "orig.ident"))
+iummne.markers <- FindAllMarkers(immune.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top5_immune <- leuk.markers %>%
+  group_by(cluster) %>%
+  top_n(n = 5, wt = avg_log2FC)
+FeaturePlot(immune.obj, features = "S100A6")
+DimPlot(immune.obj)
+scDEG_heatmap <- DoHeatmap(immune.obj, features = top5_immune$gene) + NoLegend()
+
+myel.obj <- subset(x = pa.combined, idents = "Myeloid")
+DefaultAssay(myel.obj) <- "integrated"
+myel.obj <- RunUMAP(myel.obj, dims = 1:20, n.neighbors = 30, min.dist = 0.5)
+myel.obj <- FindNeighbors(myel.obj, dims = 1:20, annoy.metric = "euclidean")
+myel.obj <- FindClusters(myel.obj, resolution = 0.3, group.singletons = TRUE)
+print(DimPlot(myel.obj, reduction = "umap"))
+print(DimPlot(myel.obj, reduction = "umap", group.by = "orig.ident"))
+myel.markers <- FindAllMarkers(myel.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top5 <- myel.markers %>%
+  group_by(cluster) %>%
+  top_n(n = 5, wt = avg_log2FC)
+DimPlot(myel.obj)
+DoHeatmap(myel.obj, features = top5$gene)
 
 ########## CNV ##########
 # library(infercnv)
 # counts_matrix = as.matrix(pa.combined@assays$RNA@counts[,colnames(pa.combined)])
-
 
 ########## Make Single-Cell Expression Set for MuSiC ##########
 library(Biobase)
