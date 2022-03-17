@@ -94,6 +94,8 @@ pa.combined <- ScaleData(pa.combined, do.center = TRUE)
 pa.combined <- RunPCA(pa.combined, features = VariableFeatures(object = pa.combined))
 VizDimLoadings(pa.combined, dims = 1:2, reduction = "pca")
 DimPlot(pa.combined, reduction = "pca", group.by = "orig.ident")
+DimPlot(pa.combined, reduction = "pca", group.by = "Phase")
+# cancer cells should be in G1 --> don't regress out
 
 # Determine number of dimensions to continue analysis with
 # Do this by: JackStraw and Elbow plots
@@ -102,22 +104,30 @@ pa.combined <- ScoreJackStraw(pa.combined, dims = 1:50)
 JackStrawPlot(pa.combined, dims = 1:50)
 ElbowPlot(pa.combined, ndims = 50) # continue with 30 dims
 
-pa.combined <- RunUMAP(pa.combined, dims = 1:30, n.neighbors = 30, min.dist = 0.5)
+pa.combined <- RunUMAP(pa.combined, dims = 1:30, n.neighbors = 50, min.dist = 0.1)
 pa.combined <- FindNeighbors(pa.combined, dims = 1:30, annoy.metric = "euclidean")
-pa.combined <- FindClusters(pa.combined, resolution = 0.3, group.singletons = TRUE)
+pa.combined <- FindClusters(pa.combined, resolution = 0.1, group.singletons = TRUE)
 print(DimPlot(pa.combined, reduction = "umap"))
-FeaturePlot(pa.combined, features = "CD163")
-VlnPlot(pa.combined, features = "NLGN3", sort = TRUE) + NoLegend()
-save(pa.combined, file = paste0(wd, "PA/PA_Data/SeuratObject_16.02.2022.RData"))
+save(pa.combined, file = paste0(wd, "PA/PA_Data/SeuratObject_16.03.2022.RData"))
 
 ##### Functional annotation #####
 library(ComplexHeatmap)
-load("PA/PA_Data/SeuratObject_16.02.2022.RData")
+load("PA/PA_Data/SeuratObject_16.03.2022.RData")
 load("PA/PA_Data/scAnalysis_16.02.2022.RData")
 DimPlot(pa.combined, reduction = "umap", split.by = "orig.ident") 
 
-pdf(paste0(fwd, "scUMAP_cluster.pdf"), width = 6, height = 6)
-print(DimPlot(pa.combined, reduction = "umap"))
+uMap_all <- DimPlot(pa.combined, reduction = "umap") +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+pdf(paste0(fwd, "scUMAP_cluster.pdf"), width = 7, height = 6)
+print(uMap_all)
 dev.off()
 
 pdf(paste0(fwd, "scUMAP_patient.pdf"), width = 6, height = 6)
@@ -164,26 +174,37 @@ library(SingleR)
 library(celldex)
 ref.data <- celldex::HumanPrimaryCellAtlasData(ensembl = FALSE)
 # ensembl == TRUE: will use the ENSEMBL IDs
-predictions <- SingleR(as.SingleCellExperiment(pa.combined), 
+cell_predictions <- SingleR(as.SingleCellExperiment(pa.combined), 
+                       ref = ref.data,
+                       labels = ref.data$label.main)
+
+cluster_predictions <- SingleR(as.SingleCellExperiment(pa.combined), 
                        ref = ref.data,
                        labels = ref.data$label.main,
-                       clusters = pa.combined$cluster.ident)
-cluster_idents <- data.frame(predictions@rownames, predictions@listData$labels)
+                       clusters = pa.combined$seurat_clusters)
 
-pa.combined[["cluster.ident"]] <- Idents(object = pa.combined)
+
+
+cluster_idents <- data.frame(cluster_predictions@rownames, cluster_predictions@listData$labels)
 pa.combined <- RenameIdents(object = pa.combined,
-                            `0` = "Myeloid",
+                            `0` = "Macrophage",
                             `1` = "Tumor",
-                            `2` = "Myeloid",
+                            `2` = "Monocyte",
                             `3` = "Tumor",
-                            `4` = "Myeloid",
-                            `5` = "Tumor",
-                            `6` = "Leukeocyte",
-                            `7` = "Tumor",
-                            `8` = "Myeloid",
-                            `9` = "Myeloid",
-                            `10` = "Myeloid")
-plotScoreHeatmap(predictions)
+                            `4` = "Leukeocyte",
+                            `5` = "Macrophage",
+                            `6` = "Macrophage")
+pa.combined <- AddMetaData(pa.combined, col.name = "SingleR_ClustPred",
+                           metadata = pa.combined@active.ident)
+pa.combined <- AddMetaData(pa.combined, metadata = cell_predictions@listData$labels, col.name = "SingleR_CellPred")
+DimPlot(pa.combined, group.by = "SingleR_CellPred")
+DimPlot(pa.combined, group.by = "SingleR_ClustPred")
+
+
+compare_idents <- as.data.frame(table(df)) %>%
+  filter(Freq > 0)
+
+a <- plotScoreHeatmap(cell_predictions)
 
 print(DimPlot(pa.combined, reduction = "umap"))
 
