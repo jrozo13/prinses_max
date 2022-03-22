@@ -29,6 +29,9 @@ library(SingleCellExperiment)
 cell_metaData <- read.csv(file = "Data/Pombo_2021/annot_Human_ND_GBM_Full.csv")
 file_dir <- paste0(wd, "Data/Pombo_2021/filtered_feature_bc_matrix_HumanNewlyDiagnGBM/filtered_feature_bc_matrix/")
 counts <- Read10X(data.dir = file_dir)
+sce <- SingleCellExperiment(assays=list(counts=counts))
+rm(counts)
+
 pombo_all <- CreateSeuratObject(counts = counts, assay = "RNA")
 
 cell_metaData$cell %in% Cells(pombo_all) %>% table()
@@ -43,9 +46,15 @@ identical(rownames(pombo@meta.data), pombo@meta.data$cellID)
 
 ########## Quality Control ########## 
 library(scater)
-save(pombo, file = paste0(wd, "PA/PA_Data/Pombo.SeuratObject_17.03.2022.RData"))
-mito.genes <- grep("^MT-", rownames(pombo@assays$RNA@counts))
-pombo$percent.mito <- Matrix::colSums(pombo@assays$RNA@counts[mito.genes, ])/Matrix::colSums(pombo@assays$RNA@counts)
+# save(pombo, file = paste0(wd, "PA/PA_Data/Pombo.SeuratObject_17.03.2022.RData"))
+load(paste0(wd, "PA/PA_Data/Pombo.SeuratObject_17.03.2022.RData"))
+mito.genes <- grep("^MT-", rownames(sce))
+sce$percent.mito <- (Matrix::colSums(counts(sce)[mito.genes, ])*100)/Matrix::colSums(counts(sce)) 
+sce$nGene<-apply(counts(sce),  2,  function(x) length(x[x > 0])) # number of expressed genes
+sce$nUMI<-apply(counts(sce),  2,  sum) # total UMI counts (library size)
+sce$staticNr<-1
+dim(colData(sce))
+colnames(colData(sce))
 
 pombo$nCount.outlier.low <- isOutlier(pombo$nCount_RNA, nmads=3, type="lower", log=TRUE)
 pombo$nFeature.outlier.low <- isOutlier(pombo$nFeature_RNA, nmads=3, type="lower", log=TRUE)

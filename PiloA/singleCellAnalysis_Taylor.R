@@ -108,7 +108,6 @@ pa.combined <- RunUMAP(pa.combined, dims = 1:30, n.neighbors = 50, min.dist = 0.
 pa.combined <- FindNeighbors(pa.combined, dims = 1:30, annoy.metric = "euclidean")
 pa.combined <- FindClusters(pa.combined, resolution = 0.1, group.singletons = TRUE)
 print(DimPlot(pa.combined, reduction = "umap"))
-save(pa.combined, file = paste0(wd, "PA/PA_Data/SeuratObject_16.03.2022.RData"))
 
 ##### Functional annotation #####
 library(ComplexHeatmap)
@@ -130,8 +129,21 @@ pdf(paste0(fwd, "scUMAP_cluster.pdf"), width = 7, height = 6)
 print(uMap_all)
 dev.off()
 
-pdf(paste0(fwd, "scUMAP_patient.pdf"), width = 6, height = 6)
-print(DimPlot(pa.combined, reduction = "umap", group.by = "orig.ident"))
+uMap_patient <- DimPlot(pa.combined, reduction = "umap", group.by = "orig.ident") +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+       # legend.position = "none",
+        plot.title = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+
+pdf(paste0(fwd, "scUMAP_patient.pdf"), width = 7, height = 6)
+print(uMap_patient)
 dev.off()
 
 markers <- FindAllMarkers(pa.combined, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
@@ -168,6 +180,7 @@ draw(ht_list, heatmap_legend_side = "bottom")
 dev.off()
 
 save(markers, pa.combined_heatmap, file = paste0(wd, "PA/PA_Data/scAnalysis_16.02.2022.RData"))
+save(pa.combined, file = paste0(wd, "PA/PA_Data/SeuratObject_22.03.2022.RData"))
 
 ##### SingleR #####
 library(SingleR)
@@ -183,8 +196,6 @@ cluster_predictions <- SingleR(as.SingleCellExperiment(pa.combined),
                        labels = ref.data$label.main,
                        clusters = pa.combined$seurat_clusters)
 
-
-
 cluster_idents <- data.frame(cluster_predictions@rownames, cluster_predictions@listData$labels)
 pa.combined <- RenameIdents(object = pa.combined,
                             `0` = "Macrophage",
@@ -194,22 +205,83 @@ pa.combined <- RenameIdents(object = pa.combined,
                             `4` = "Leukeocyte",
                             `5` = "Macrophage",
                             `6` = "Macrophage")
-pa.combined <- AddMetaData(pa.combined, col.name = "SingleR_ClustPred",
-                           metadata = pa.combined@active.ident)
 pa.combined <- AddMetaData(pa.combined, metadata = cell_predictions@listData$labels, col.name = "SingleR_CellPred")
+DimPlot(pa.combined)
+
 DimPlot(pa.combined, group.by = "SingleR_CellPred")
-DimPlot(pa.combined, group.by = "SingleR_ClustPred")
 
+heatmap_singleR <- plotScoreHeatmap(cell_predictions,
+                 cluster_cols = FALSE,
+                 annotation_col = data.frame(pa.combined@active.ident))
+pdf(paste0(fwd, "heatmap_singleR.pdf"), width = 12, height = 8)
+print(heatmap_singleR)
+dev.off()
 
-compare_idents <- as.data.frame(table(df)) %>%
-  filter(Freq > 0)
+macrophage_cells <- subset(pa.combined, idents = "Macrophage") %>% Cells()
+monocyte_cells <- subset(pa.combined, idents = "Monocyte") %>% Cells()
+tam_degs <- FindMarkers(pa.combined, 
+                        ident.1 = macrophage_cells, 
+                        ident.2 = monocyte_cells,
+                        min.pct = 0.25, max.cells.per.ident = 1000) %>% 
+  data.frame %>%
+  rownames_to_column(var = "Gene") %>%
+  mutate(Meta = ifelse(avg_log2FC < 0 & p_val_adj < 0.001, "Enriched: Macrophage",
+                       ifelse(avg_log2FC > 0 & p_val_adj < 0.001, "Enriched: Monocyte",
+                              "Not significant")))
+ggplot(data = tam_degs, aes(x=avg_log2FC, y=-log(p_val_adj), col = Meta)) + 
+  geom_point() + 
+  scale_color_manual(values=c("Red", "Blue", "Black")) +
+  theme_classic() +
+  ylab("-log 10 adjusted p-value") +
+  xlab("log2FC") +
+  theme(
+    legend.title = element_blank()
+  )
 
-a <- plotScoreHeatmap(cell_predictions)
+tissue_stem_cells <- subset(pa.combined, subset = SingleR_CellPred == c("Tissue_stem_cells")) %>% Cells()
+tumor_cells <- subset(pa.combined, idents = "Tumor") %>% Cells()
+setdiff(tissue_stem_cells, tumor_cells) # all TSM are tumor cells
+nonTissue_stem_cells <- setdiff(tumor_cells, tissue_stem_cells)
+TSM_degs <- FindMarkers(pa.combined, 
+            ident.1 = nonTissue_stem_cells, 
+            ident.2 = tissue_stem_cells,
+            max.cells.per.ident = 200,
+            min.pct = 0.25) %>% 
+  data.frame %>%
+  rownames_to_column(var = "Gene") %>%
+  mutate(Meta = ifelse(avg_log2FC < 0 & p_val_adj < 0.001, "Down",
+                       ifelse(avg_log2FC > 0 & p_val_adj < 0.001, "Up",
+                              "Not significant")))
+ggplot(data=TSM_degs, aes(x=avg_log2FC, y=-log(p_val_adj), col = Meta)) + 
+  geom_point() + 
+  scale_color_manual(values=c("Red", "Black", "Blue")) +
+  theme_classic() +
+  ylab("-log 10 adjusted p-value") +
+  xlab("log2FC") +
+  theme(
+    legend.title = element_blank()
+  )
+  
 
-print(DimPlot(pa.combined, reduction = "umap"))
+uMap_TSC <- DimPlot(pa.combined, cells.highlight = tissue_stem_cells) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        legend.position = "none",
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+
+pdf(paste0(fwd, "scUMAP_tissueStemCells.pdf"), width = 6, height = 6)
+print(uMap_TSC)
+dev.off()
+
 
 #### Sub-cluster immune cells ###
-immune.obj <- subset(x = pa.combined, idents = c("Leukeocyte", "Myeloid"))
+immune.obj <- subset(x = pa.combined, idents = c("Leukeocyte", "Monocyte", "Macrophage"))
 DefaultAssay(immune.obj) <- "integrated"
 immune.obj <- RunUMAP(immune.obj, dims = 1:30, n.neighbors = 30, min.dist = 0.5)
 immune.obj <- FindNeighbors(immune.obj, dims = 1:30, annoy.metric = "euclidean")
@@ -224,19 +296,9 @@ FeaturePlot(immune.obj, features = "S100A6")
 DimPlot(immune.obj)
 scDEG_heatmap <- DoHeatmap(immune.obj, features = top5_immune$gene) + NoLegend()
 
-myel.obj <- subset(x = pa.combined, idents = "Myeloid")
-DefaultAssay(myel.obj) <- "integrated"
-myel.obj <- RunUMAP(myel.obj, dims = 1:20, n.neighbors = 30, min.dist = 0.5)
-myel.obj <- FindNeighbors(myel.obj, dims = 1:20, annoy.metric = "euclidean")
-myel.obj <- FindClusters(myel.obj, resolution = 0.3, group.singletons = TRUE)
-print(DimPlot(myel.obj, reduction = "umap"))
-print(DimPlot(myel.obj, reduction = "umap", group.by = "orig.ident"))
-myel.markers <- FindAllMarkers(myel.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-top5 <- myel.markers %>%
-  group_by(cluster) %>%
-  top_n(n = 5, wt = avg_log2FC)
-DimPlot(myel.obj)
-DoHeatmap(myel.obj, features = top5$gene)
+immune.cluster_predictions <- SingleR(as.SingleCellExperiment(immune.obj), 
+                               ref = ref.pombo,
+                               labels = ref.pombo$cluster)
 
 ########## CNV ##########
 # library(infercnv)
