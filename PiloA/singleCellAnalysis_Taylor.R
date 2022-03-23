@@ -242,7 +242,7 @@ tissue_stem_cells <- subset(pa.combined, subset = SingleR_CellPred == c("Tissue_
 tumor_cells <- subset(pa.combined, idents = "Tumor") %>% Cells()
 setdiff(tissue_stem_cells, tumor_cells) # all TSM are tumor cells
 nonTissue_stem_cells <- setdiff(tumor_cells, tissue_stem_cells)
-TSM_degs <- FindMarkers(pa.combined, 
+TSM_degs <- FindMarkers(pa.combined,
             ident.1 = nonTissue_stem_cells, 
             ident.2 = tissue_stem_cells,
             max.cells.per.ident = 200,
