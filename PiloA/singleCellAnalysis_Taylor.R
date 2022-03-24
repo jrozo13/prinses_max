@@ -115,10 +115,11 @@ load("PA/PA_Data/SeuratObject_16.03.2022.RData")
 load("PA/PA_Data/scAnalysis_16.02.2022.RData")
 DimPlot(pa.combined, reduction = "umap", split.by = "orig.ident") 
 
-uMap_all <- DimPlot(pa.combined, reduction = "umap") +
+uMap_cluster <- DimPlot(pa.combined, reduction = "umap", group.by = "seurat_clusters") +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_blank(),
         axis.line = element_blank(),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
@@ -126,7 +127,7 @@ uMap_all <- DimPlot(pa.combined, reduction = "umap") +
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
 pdf(paste0(fwd, "scUMAP_cluster.pdf"), width = 7, height = 6)
-print(uMap_all)
+print(uMap_cluster)
 dev.off()
 
 uMap_patient <- DimPlot(pa.combined, reduction = "umap", group.by = "orig.ident") +
@@ -206,7 +207,21 @@ pa.combined <- RenameIdents(object = pa.combined,
                             `5` = "Macrophage",
                             `6` = "Macrophage")
 pa.combined <- AddMetaData(pa.combined, metadata = cell_predictions@listData$labels, col.name = "SingleR_CellPred")
-DimPlot(pa.combined)
+uMap_annot <- DimPlot(pa.combined, reduction = "umap") +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+pdf(paste0(fwd, "scUMAP_annot.pdf"), width = 7.5, height = 6)
+print(uMap_annot)
+dev.off()
+
 
 DimPlot(pa.combined, group.by = "SingleR_CellPred")
 
@@ -238,30 +253,92 @@ ggplot(data = tam_degs, aes(x=avg_log2FC, y=-log(p_val_adj), col = Meta)) +
     legend.title = element_blank()
   )
 
-tissue_stem_cells <- subset(pa.combined, subset = SingleR_CellPred == c("Tissue_stem_cells")) %>% Cells()
+### Analaysis of tumor stem cells
+tumor_stem_cells <- subset(pa.combined, subset = SingleR_CellPred == c("Tissue_stem_cells")) %>% Cells()
 tumor_cells <- subset(pa.combined, idents = "Tumor") %>% Cells()
-setdiff(tissue_stem_cells, tumor_cells) # all TSM are tumor cells
-nonTissue_stem_cells <- setdiff(tumor_cells, tissue_stem_cells)
+setdiff(tumor_stem_cells, tumor_cells) # all TSM are tumor cells
+nonTumor_stem_cells <- setdiff(tumor_cells, tumor_stem_cells)
 TSM_degs <- FindMarkers(pa.combined,
-            ident.1 = nonTissue_stem_cells, 
-            ident.2 = tissue_stem_cells,
-            max.cells.per.ident = 200,
+            ident.1 = tumor_stem_cells, 
+            ident.2 = nonTumor_stem_cells,
+            #max.cells.per.ident = 200,
             min.pct = 0.25) %>% 
   data.frame %>%
   rownames_to_column(var = "Gene") %>%
   mutate(Meta = ifelse(avg_log2FC < 0 & p_val_adj < 0.001, "Down",
                        ifelse(avg_log2FC > 0 & p_val_adj < 0.001, "Up",
                               "Not significant")))
-ggplot(data=TSM_degs, aes(x=avg_log2FC, y=-log(p_val_adj), col = Meta)) + 
+tsm_up_genes <- TSM_degs %>% 
+  filter(Meta == "Up") %>%
+  arrange(-avg_log2FC) %>%
+  pull(Gene)
+tsm_down_genes <- TSM_degs %>% 
+  filter(Meta == "Down") %>%
+  arrange(avg_log2FC) %>%
+  pull(Gene)
+
+tsm_volcano <- ggplot(data=TSM_degs, aes(x=avg_log2FC, y=-log(p_val_adj), col = Meta)) + 
   geom_point() + 
-  scale_color_manual(values=c("Red", "Black", "Blue")) +
+  scale_color_manual(values=c("Blue", "Black", "Red")) +
   theme_classic() +
   ylab("-log 10 adjusted p-value") +
   xlab("log2FC") +
-  theme(
-    legend.title = element_blank()
-  )
-  
+  theme(panel.background = element_rect(colour = "black", size = 1),
+          legend.title = element_blank(),
+          axis.line = element_blank(),
+          axis.title = element_text(size = 10)) +
+  geom_text_repel(data = TSM_degs[TSM_degs$Gene %in% c(tsm_up_genes[1:10], tsm_down_genes[1:10]),], 
+                  aes(label = Gene),
+                  show.legend = FALSE
+                    )
+pdf(paste0(fwd, "volcano_tumorstemcell.pdf"), width = 8, height = 6)
+print(tsm_volcano)
+dev.off()
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(gridExtra)
+tsm_up_entrez <- AnnotationDbi::select(org.Hs.eg.db,
+                    keys = tsm_up_genes,
+                    columns = c("ENTREZID", "SYMBOL"),
+                    keytype = "SYMBOL") %>%
+  na.omit() %>%
+  pull(ENTREZID)
+tsm_down_entrez <- AnnotationDbi::select(org.Hs.eg.db,
+                                       keys = tsm_down_genes,
+                                       columns = c("ENTREZID", "SYMBOL"),
+                                       keytype = "SYMBOL") %>%
+  na.omit() %>%
+  pull(ENTREZID)
+
+go_tsm <- enrichGO(gene = tsm_up_entrez, 
+         OrgDb = org.Hs.eg.db, 
+         keyType = 'ENTREZID',
+         ont = "BP",
+         pAdjustMethod = "BH", 
+         qvalueCutoff = 0.05, 
+         readable = TRUE) %>%
+  enrichplot::pairwise_termsim() %>%
+  dotplot(x = "GeneRatio",
+          showCategory = 20,
+          font.size = 8,
+          title = "Pathways enriched in tumor stem cells")
+go_nonTsm <- enrichGO(gene = tsm_down_entrez, 
+         OrgDb = org.Hs.eg.db, 
+         keyType = 'ENTREZID',
+         ont = "BP", 
+         pAdjustMethod = "BH", 
+         qvalueCutoff = 0.05, 
+         readable = TRUE) %>%
+  enrichplot::pairwise_termsim() %>%
+  dotplot(x = "GeneRatio",
+          showCategory = 20,
+          font.size = 8,
+          title = "Pathways enriched in tumor cells")
+pdf(paste0(fwd, "go_tumorStemCells.pdf"), width = 12, height = 6)
+grid.arrange(go_tsm, go_nonTsm, ncol = 2)
+dev.off()
+
 
 uMap_TSC <- DimPlot(pa.combined, cells.highlight = tissue_stem_cells) +
   xlab("UMAP1") + 
@@ -274,6 +351,19 @@ uMap_TSC <- DimPlot(pa.combined, cells.highlight = tissue_stem_cells) +
         axis.title = element_text(size = 10),
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
+DimPlot(pa.combined, cells = c(tumor_cells, tissue_stem_cells)) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        legend.position = "none",
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+DimPlot(pa.combined, cells = tumor_cells)
+DimPlot(pa.combined, cells = tumor_cells)
 
 pdf(paste0(fwd, "scUMAP_tissueStemCells.pdf"), width = 6, height = 6)
 print(uMap_TSC)

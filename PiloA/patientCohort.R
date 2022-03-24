@@ -44,7 +44,7 @@ unique_samples <- colnames(mat)
 
 annotations <- cohort %>%
   filter(UniqueSample == "Yes") %>%
-  select(Subject.ID, Sex, AgeMonths, Location, LocationSpecific, Molecular.1, Molecular.2, NumMut, snRNAseq)
+  select(Subject.ID, Sex, AgeMonths, Status, Location, LocationSpecific, Molecular.1, Molecular.2, NumMut, snRNAseq)
 
 ########## Organize dataframe for OncoPrint ########## 
 # make oncoprint of all unique samples
