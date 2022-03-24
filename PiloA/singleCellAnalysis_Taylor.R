@@ -9,6 +9,8 @@ library(tidyverse)
 library(readxl)
 library(RColorBrewer)
 library(circlize)
+library(ggplot2)
+library(ggrepel)
 col_annotations <- list(
   Sex = c("M" = "skyblue", "F" = "pink"),
   Location = c("Spinal" = "#EF553B", 
@@ -340,7 +342,10 @@ grid.arrange(go_tsm, go_nonTsm, ncol = 2)
 dev.off()
 
 
-uMap_TSC <- DimPlot(pa.combined, cells.highlight = tissue_stem_cells) +
+uMap_tsc <-  DimPlot(pa.combined, 
+        cells.highlight = tumor_stem_cells, 
+        cols.highlight = "red",
+        sizes.highlight = 0.05) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   theme(panel.background = element_rect(colour = "black", size = 1),
@@ -351,7 +356,11 @@ uMap_TSC <- DimPlot(pa.combined, cells.highlight = tissue_stem_cells) +
         axis.title = element_text(size = 10),
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
-DimPlot(pa.combined, cells = c(tumor_cells, tissue_stem_cells)) +
+  
+uMap_nonTsc <- DimPlot(pa.combined,
+        cells.highlight = nonTumor_stem_cells,
+        cols.highlight = "blue",
+        sizes.highlight = 0.05) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   theme(panel.background = element_rect(colour = "black", size = 1),
@@ -362,11 +371,9 @@ DimPlot(pa.combined, cells = c(tumor_cells, tissue_stem_cells)) +
         axis.title = element_text(size = 10),
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
-DimPlot(pa.combined, cells = tumor_cells)
-DimPlot(pa.combined, cells = tumor_cells)
 
-pdf(paste0(fwd, "scUMAP_tissueStemCells.pdf"), width = 6, height = 6)
-print(uMap_TSC)
+pdf(paste0(fwd, "scUMAP_tsc.pdf"), width = 12, height = 6)
+grid.arrange(uMap_tsc, uMap_nonTsc, ncol = 2)
 dev.off()
 
 
