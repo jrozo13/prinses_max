@@ -337,10 +337,10 @@ go_nonTsm <- enrichGO(gene = tsm_down_entrez,
           showCategory = 20,
           font.size = 8,
           title = "Pathways enriched in tumor cells")
+
 pdf(paste0(fwd, "go_tumorStemCells.pdf"), width = 12, height = 6)
 grid.arrange(go_tsm, go_nonTsm, ncol = 2)
 dev.off()
-
 
 uMap_tsc <-  DimPlot(pa.combined, 
         cells.highlight = tumor_stem_cells, 
@@ -375,7 +375,6 @@ uMap_nonTsc <- DimPlot(pa.combined,
 pdf(paste0(fwd, "scUMAP_tsc.pdf"), width = 12, height = 6)
 grid.arrange(uMap_tsc, uMap_nonTsc, ncol = 2)
 dev.off()
-
 
 #### Sub-cluster immune cells ###
 immune.obj <- subset(x = pa.combined, idents = c("Leukeocyte", "Monocyte", "Macrophage"))
