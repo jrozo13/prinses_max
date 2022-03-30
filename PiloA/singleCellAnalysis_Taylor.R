@@ -464,6 +464,7 @@ immune.cell_predictions <- SingleR(test = immune.obj_sce,
 save(immune.cell_predictions, file = paste0(wd, "PA/PA_Data/SingleRAnnotation_Taylor.RData"))
 
 immune.obj <- AddMetaData(immune.obj, immune.cell_predictions$labels, col.name = "SingleR.Pombo")
+
 uMapPA_pomboAnnot <- DimPlot(immune.obj,
         reduction = "umapHarmony",
         group.by = "SingleR.Pombo",
@@ -485,6 +486,8 @@ uMapPA_pomboAnnot <- DimPlot(immune.obj,
 pdf(paste0(fwd, "scUMAP.TaylorPA_pomboAnnot.pdf"), width = 7.5, height = 6)
 print(uMapPA_pomboAnnot)
 dev.off()
+
+save(immune.obj, file = paste0(wd, "PA/PA_Data/TaylorImmune.SeuratObj_30.03.2022.RData"))
 
 iummne.markers <- FindAllMarkers(immune.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
 top5_immune <- leuk.markers %>%
