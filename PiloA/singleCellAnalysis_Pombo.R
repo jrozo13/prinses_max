@@ -95,9 +95,9 @@ ggplot(metaData.filtered, aes(staticNr, percent.mito)) +
 # Check which metaData was used to identify outliers
 library(VennDiagram)
 v <-venn.diagram(
-  list (UMI=rownames(colData(sce)[sce$nUMI.outlier.low,]),
-        gene=rownames(colData(sce)[sce$nGene.outlier.low,]),
-        mito=rownames(colData(sce)[sce$mito.outlier.high,])),
+  list(UMI=rownames(colData(sce)[sce$nUMI.outlier.low,]),
+       gene=rownames(colData(sce)[sce$nGene.outlier.low,]),
+       mito=rownames(colData(sce)[sce$mito.outlier.high,])),
   filename=NULL,
   alpha = c( 0.5,0.5,0.5),
   fill = c("green","orange","blue")
@@ -108,11 +108,13 @@ rm(v)
 
 # Remove outliers
 sce_clean <- sce[,!(sce$nUMI.outlier.low | sce$nGene.outlier.low | sce$mito.outlier.high)]
+
 dim(sce_clean)
 ncol(sce_clean)-ncol(sce)
 
+sce_clean@metadata <- sce_clean@metadata[Cells(sce_clean),]
+
 # Check how many cells were removed
-sce_clean <- addPerCellQC(pombo@assays$RNA@counts, subsets=list(Mt=is.mito), flatten=T)
 sce_clean <- addPerCellQC(sce_clean, flatten=T)
 
 # Filter out by genes
@@ -127,36 +129,90 @@ table(rowData(sce_clean)$usegenes)
 
 # Filter out the lowly-abundant genes
 sce_clean <- sce_clean[rowData(sce_clean)$usegenes, ]
+save(sce, sce_clean, file = paste0(wd, "PA/PA_Data/Pombo.SingleCellExpObject_29.03.2022.RData"))
 
 ########## Make Seurat Object ##########
 counts <- counts(sce_clean)
 rownames(counts) <- rownames(sce_clean)
 colnames(counts) <- colnames(sce_clean)
 seuratObj <- CreateSeuratObject(counts = counts)
-meta.data.keep <- colData(sce_clean)
-meta.data.keep <- meta.data.keep[,c("percent.mito")]
+
+meta.data.keep <- cbind(colData(sce_clean), sce_clean@metadata)
 
 seuratObj <- AddMetaData(seuratObj, as.data.frame(meta.data.keep))
-save(seuratObj, file = paste0(wd, "PA/PA_Data/Pombo.SeuratObj_29.03.2022.RData"))
-save(sce, file = paste0(wd, "PA/PA_Data/Pombo.SingleCellExpObject_29.03.2022.RData"))
 
-pombo <- NormalizeData(pombo,verbose = F)
-pombo <- FindVariableFeatures(pombo,verbose=F)
-pombo <- ScaleData(pombo,verbose=F)
-pombo <- RunPCA(pombo, features =VariableFeatures(pombo))
-ElbowPlot(object = pombo, ndims = 50)
-pombo <- FindNeighbors(pombo, dims = 1:30, annoy.metric = "euclidean")
-pombo <- FindClusters(pombo, resolution = 0.1, group.singletons = TRUE)
-pombo <- RunUMAP(pombo, dims = 1:30, verbose=F)
-DimPlot(object = pombo, group.by = "seurat_clusters")
-DimPlot(object = pombo, group.by = "seurat_clusters")
+# Normalization and clustering
+seuratObj <- NormalizeData(seuratObj, verbose = F)
+seuratObj <- FindVariableFeatures(seuratObj, verbose = F)
+seuratObj <- ScaleData(seuratObj, verbose = F)
+seuratObj <- RunPCA(seuratObj, features = VariableFeatures(seuratObj))
+ElbowPlot(object = seuratObj, ndims = 50)
+DimHeatmap(seuratObj, dims = 25:30, cells = 5000, balanced = TRUE)
+# use 30 PCs
 
+dims.use <- 30
+seuratObj <- RunUMAP(seuratObj, dims = 1:dims.use, verbose=F)
+DimPlot(object = seuratObj, group.by="sample")
+# see clear separation by patient --> harmony correct data
 
-is.mito <-grepl("^MT-",rownames(sce_clean))
-sum(is.mito)
-sce_clean <- addPerCellQC(sce_clean, subsets=list(Mt=is.mito), flatten=T)
+# Harmony correct for sample because they clustered by sample, not cell type
+library(harmony)
+theta.use<-1
+seuratObj <- RunHarmony(seuratObj, 
+                        group.by.vars = "sample",
+                        theta = theta.use,  
+                        plot_convergence = TRUE)
 
-########## Load Pombo dataset ##########
-library(SingleR)
-ref.pombo <- as.SingleCellExperiment(pombo, assay = "RNA")
+#### Run UMAP on the harmony-corrected PCA
+seuratObj <- RunUMAP(seuratObj,
+                     reduction = "harmony", 
+                     dims = 1:dims.use, 
+                     reduction.name = "umapHarmony",
+                     reduction.key = "umapHarmony")
 
+#### Visualise the harmony-corrected UMAP plot, coloured by sample to check if the  batch effects were resolved
+uMapPombo_patient <- DimPlot(seuratObj,
+        pt.size = 1,
+        group.by = "sample",
+        reduction = "umapHarmony") +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  labs(title = "Newly Diagnosed Glioblastoma",
+       subtitle = "Pombo-Antunes, 2021") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+
+pdf(paste0(fwd, "scUMAP.Pombo_patient.pdf"), width = 7, height = 6)
+print(uMapPombo_patient)
+dev.off()
+
+uMapPombo_annot <- DimPlot(seuratObj,
+        pt.size = 1,
+        group.by = "cluster",
+        reduction = "umapHarmony") +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  labs(title = "Newly Diagnosed Glioblastoma",
+       subtitle = "Pombo-Antunes, 2021") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+
+pdf(paste0(fwd, "scUMAP.Pombo_annot.pdf"), width = 7.5, height = 6)
+print(uMapPombo_annot)
+dev.off()
+
+save(seuratObj, file = paste0(wd, "PA/PA_Data/Pombo.SeuratObj_30.03.2022.RData"))
