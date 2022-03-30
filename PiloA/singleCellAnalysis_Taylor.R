@@ -117,27 +117,33 @@ load("PA/PA_Data/SeuratObject_16.03.2022.RData")
 load("PA/PA_Data/scAnalysis_16.02.2022.RData")
 DimPlot(pa.combined, reduction = "umap", split.by = "orig.ident") 
 
-uMap_cluster <- DimPlot(pa.combined, reduction = "umap", group.by = "seurat_clusters") +
+uMap_cluster <- DimPlot(pa.combined, reduction = "umap", group.by = "seurat_clusters", pt.size = 1) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma",
+       subtitle = "Seurat Clusters") +
   theme(panel.background = element_rect(colour = "black", size = 1),
-        plot.title = element_blank(),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
         axis.line = element_blank(),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
         axis.title = element_text(size = 10),
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
-pdf(paste0(fwd, "scUMAP_cluster.pdf"), width = 7, height = 6)
+
+pdf(paste0(fwd, "scUMAP.Taylor_cluster.pdf"), width = 7, height = 6)
 print(uMap_cluster)
 dev.off()
 
-uMap_patient <- DimPlot(pa.combined, reduction = "umap", group.by = "orig.ident") +
+uMap_patient <- DimPlot(pa.combined, reduction = "umap", group.by = "orig.ident", pt.size = 1) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma",
+       subtitle = "Patient") +
   theme(panel.background = element_rect(colour = "black", size = 1),
-       # legend.position = "none",
-        plot.title = element_blank(),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
         axis.line = element_blank(),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
@@ -145,7 +151,7 @@ uMap_patient <- DimPlot(pa.combined, reduction = "umap", group.by = "orig.ident"
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
 
-pdf(paste0(fwd, "scUMAP_patient.pdf"), width = 7, height = 6)
+pdf(paste0(fwd, "scUMAP.Taylor_patient.pdf"), width = 7, height = 6)
 print(uMap_patient)
 dev.off()
 
@@ -185,7 +191,7 @@ dev.off()
 save(markers, pa.combined_heatmap, file = paste0(wd, "PA/PA_Data/scAnalysis_16.02.2022.RData"))
 save(pa.combined, file = paste0(wd, "PA/PA_Data/SeuratObject_22.03.2022.RData"))
 
-##### SingleR #####
+########## SingleR ##########
 library(SingleR)
 library(celldex)
 ref.data <- celldex::HumanPrimaryCellAtlasData(ensembl = FALSE)
@@ -209,21 +215,23 @@ pa.combined <- RenameIdents(object = pa.combined,
                             `5` = "Macrophage",
                             `6` = "Macrophage")
 pa.combined <- AddMetaData(pa.combined, metadata = cell_predictions@listData$labels, col.name = "SingleR_CellPred")
-uMap_annot <- DimPlot(pa.combined, reduction = "umap") +
+uMap_annot <- DimPlot(pa.combined, reduction = "umap", pt.size = 1) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma",
+       subtitle = "Cluster annotations") +
   theme(panel.background = element_rect(colour = "black", size = 1),
-        plot.title = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
         axis.line = element_blank(),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
         axis.title = element_text(size = 10),
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
-pdf(paste0(fwd, "scUMAP_annot.pdf"), width = 7.5, height = 6)
+pdf(paste0(fwd, "scUMAP.Taylor_annot.pdf"), width = 7.5, height = 6)
 print(uMap_annot)
 dev.off()
-
 
 DimPlot(pa.combined, group.by = "SingleR_CellPred")
 
@@ -255,7 +263,7 @@ ggplot(data = tam_degs, aes(x=avg_log2FC, y=-log(p_val_adj), col = Meta)) +
     legend.title = element_blank()
   )
 
-### Analaysis of tumor stem cells
+########## Analaysis of tumor stem cells ########## 
 tumor_stem_cells <- subset(pa.combined, subset = SingleR_CellPred == c("Tissue_stem_cells")) %>% Cells()
 tumor_cells <- subset(pa.combined, idents = "Tumor") %>% Cells()
 setdiff(tumor_stem_cells, tumor_cells) # all TSM are tumor cells
@@ -345,11 +353,16 @@ dev.off()
 uMap_tsc <-  DimPlot(pa.combined, 
         cells.highlight = tumor_stem_cells, 
         cols.highlight = "red",
-        sizes.highlight = 0.05) +
+        sizes.highlight = 0.8,
+        pt.size = 1) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma",
+       subtitle = "Tumor Stem Cells") +
   theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(hjust = 0.5),
         legend.position = "none",
+        plot.subtitle = element_text(hjust = 0.5),
         axis.line = element_blank(),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
@@ -360,11 +373,16 @@ uMap_tsc <-  DimPlot(pa.combined,
 uMap_nonTsc <- DimPlot(pa.combined,
         cells.highlight = nonTumor_stem_cells,
         cols.highlight = "blue",
-        sizes.highlight = 0.05) +
+        sizes.highlight = 0.8,
+        pt.size = 1) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma",
+       subtitle = "Other Tumor Cells") +
   theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(hjust = 0.5),
         legend.position = "none",
+        plot.subtitle = element_text(hjust = 0.5),
         axis.line = element_blank(),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
@@ -372,18 +390,102 @@ uMap_nonTsc <- DimPlot(pa.combined,
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
 
-pdf(paste0(fwd, "scUMAP_tsc.pdf"), width = 12, height = 6)
+pdf(paste0(fwd, "scUMAP.Taylor_tsc.pdf"), width = 12, height = 6)
 grid.arrange(uMap_tsc, uMap_nonTsc, ncol = 2)
 dev.off()
 
-#### Sub-cluster immune cells ###
+########## Annotation of immune cells ##########
+load("PA/PA_Data/Pombo.SeuratObj_30.03.2022.RData")
+assign("ref.pombo", seuratObj); rm(seuratObj)
+load("PA/PA_Data/SeuratObject_22.03.2022.RData")
+library(SingleR)
+library(SingleCellExperiment)
+library(Seurat)
+
 immune.obj <- subset(x = pa.combined, idents = c("Leukeocyte", "Monocyte", "Macrophage"))
 DefaultAssay(immune.obj) <- "integrated"
-immune.obj <- RunUMAP(immune.obj, dims = 1:30, n.neighbors = 30, min.dist = 0.5)
-immune.obj <- FindNeighbors(immune.obj, dims = 1:30, annoy.metric = "euclidean")
-immune.obj <- FindClusters(immune.obj, resolution = 0.5, group.singletons = TRUE)
-print(DimPlot(immune.obj, reduction = "umap"))
-print(DimPlot(immune.obj, reduction = "umap", group.by = "orig.ident"))
+
+#immune.obj <- NormalizeData(immune.obj, verbose = F)
+#immune.obj <- FindVariableFeatures(immune.obj, verbose = F)
+immune.obj <- ScaleData(immune.obj, verbose = F)
+immune.obj <- RunPCA(immune.obj, features = VariableFeatures(immune.obj))
+dims.use <- 30
+immune.obj <- RunUMAP(immune.obj, dims = 1:dims.use, min.dist = 0.5, verbose = F)
+DimPlot(immune.obj, group.by = "orig.ident")
+
+library(harmony)
+theta.use <- 1
+immune.obj <- RunHarmony(immune.obj, 
+                        group.by.vars = "orig.ident",
+                        theta = theta.use,  
+                        plot_convergence = FALSE)
+immune.obj <- RunUMAP(immune.obj,
+                     reduction = "harmony", 
+                     dims = 1:dims.use, 
+                     reduction.name = "umapHarmony",
+                     reduction.key = "umapHarmony")
+
+DimPlot(immune.obj,
+        group.by = "orig.ident",
+        reduction = "umapHarmony") +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+
+DimPlot(immune.obj,
+        reduction = "umapHarmony",
+        group.by = "SingleR_CellPred") +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+
+ref.pombo <- as.SingleCellExperiment(ref.pombo)
+immune.obj_sce <- as.SingleCellExperiment(immune.obj)
+
+immune.cell_predictions <- SingleR(test = immune.obj_sce,
+                                   ref = ref.pombo,
+                                   labels = ref.pombo$cluster)
+save(immune.cell_predictions, file = paste0(wd, "PA/PA_Data/SingleRAnnotation_Taylor.RData"))
+
+immune.obj <- AddMetaData(immune.obj, immune.cell_predictions$labels, col.name = "SingleR.Pombo")
+uMapPA_pomboAnnot <- DimPlot(immune.obj,
+        reduction = "umapHarmony",
+        group.by = "SingleR.Pombo",
+        pt.size = 1) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma: immune microenvironment",
+       subtitle = "SingleR annotation: Pombo-Antunes, 2021") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+
+pdf(paste0(fwd, "scUMAP.TaylorPA_pomboAnnot.pdf"), width = 7.5, height = 6)
+print(uMapPA_pomboAnnot)
+dev.off()
+
 iummne.markers <- FindAllMarkers(immune.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
 top5_immune <- leuk.markers %>%
   group_by(cluster) %>%
@@ -391,14 +493,6 @@ top5_immune <- leuk.markers %>%
 FeaturePlot(immune.obj, features = "S100A6")
 DimPlot(immune.obj)
 scDEG_heatmap <- DoHeatmap(immune.obj, features = top5_immune$gene) + NoLegend()
-
-immune.cluster_predictions <- SingleR(as.SingleCellExperiment(immune.obj), 
-                               ref = ref.pombo,
-                               labels = ref.pombo$cluster)
-
-########## CNV ##########
-# library(infercnv)
-# counts_matrix = as.matrix(pa.combined@assays$RNA@counts[,colnames(pa.combined)])
 
 ########## Make Single-Cell Expression Set for MuSiC ##########
 library(Biobase)
