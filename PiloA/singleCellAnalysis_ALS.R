@@ -136,7 +136,7 @@ ElbowPlot(object = seuratObj, ndims = 50)
 DimHeatmap(seuratObj, dims = 25:30, cells = 5000, balanced = TRUE)
 # use 30 PCs
 
-dims.use <- 40
+dims.use <- 30
 seuratObj <- RunUMAP(seuratObj, dims = 1:dims.use, verbose=F)
 DimPlot(object = seuratObj, group.by = "orig.ident")
 # see clear separation by patient --> harmony correct data
@@ -155,8 +155,14 @@ seuratObj <- RunUMAP(seuratObj,
                      dims = 1:dims.use, 
                      reduction.name = "umapHarmony",
                      reduction.key = "umapHarmony")
+seuratObj <- RunTSNE(seuratObj,
+                     reduction = "harmony",
+                     dims = 1:dims.use,
+                     reduction.name = "tsneHarmony",
+                     reduction.key = "tsneHarmony")
 
 DimPlot(seuratObj,
+        pt.size = 1,
         group.by = "updated_location",
         reduction = "umapHarmony") +
   xlab("UMAP1") + 
@@ -172,3 +178,26 @@ DimPlot(seuratObj,
         axis.title = element_text(size = 10),
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
+
+########## Clustering ##########
+seuratObj <- FindNeighbors(seuratObj, 
+                           dims = 1:dims.use,
+                           annoy.metric = "euclidean")
+seuratObj <- FindClusters(seuratObj, resolution = 0.1, group.singletons = TRUE)
+DimPlot(seuratObj,
+        pt.size = 1,
+        reduction = "umapHarmony") +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma",
+       subtitle = "Alex's Lemonade Stand, 2022") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+

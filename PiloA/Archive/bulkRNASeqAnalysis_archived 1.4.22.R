@@ -1,5 +1,5 @@
 # Pilocytic astrocytoma transcriptomic analysis
-# Last updated: 1/04/2022
+# Last updated: 11/03/2022
 
 ########## Initialize ##########
 ## Install global packages ##
@@ -12,13 +12,8 @@ library(circlize)
 col_annotations <- list(
   Sex = c("M" = "skyblue", "F" = "pink"),
   Location = c("Spinal" = "#EF553B", 
-               "Posterior Fossa" = "#636EFA", 
+               "Posterior fossa" = "#636EFA", 
                "Supratentorial" = "#00CC96"),
-  LocationSpecific = c("cerebellum/4th" = "#636EFA",
-                       "spinal cord" = "#EF553B",
-                       "brain stem" = "black",
-                       "diencephalon" = "#00CC96",
-                       "cerebral hemisphere" = "yellow"),
   Age = colorRamp2(c(0,20), c("#edf8e9", "#74c476"))
 )
 
@@ -30,130 +25,91 @@ annotations_ahb <- read.csv("PA/Analysis/GSEA/annotations_ahb.csv")
 annotations_ahb %>% filter(gene_biotype == "protein_coding") %>% pull(gene_name) -> protein_genes
 
 ########## Prepare Data ##########
-# compile all patient IDs
-file.path <- paste0(wd, "Data/PMC/RNA_jacob/")
-files <- paste0(list.files(path = file.path))
-
-meta_data <- read_excel(path = "PA/Cohort/ClinicalData_updates.xlsx", sheet = "CohortList")
-
-patient_counts <- data.frame()
-patient_id_list <- c()
-for (i in 1:length(files)) {
-  print(i)
-  sample_id <- files[i] %>% strsplit(split = "_") %>% sapply(getElement, 1)
-  print(sample_id)
-  if (meta_data$UniqueSample[meta_data$PMABM == sample_id] == "Yes") {
-    patient_id <- meta_data %>% 
-      filter(UniqueSample == "Yes") %>%
-      filter(PMABM == sample_id) %>%
-      pull(`Subject ID`)
-    print(patient_id)
-    
-    if (!patient_id %in% patient_id_list) {
-      patient_id_list <- c(patient_id_list, patient_id)
-      patient_file <- paste0(file.path, files[i])
-      colnames <- c("ID", "Counts", "CPM", "FPKM", "Chr", "Start", "End", "Strand", "Length", "GeneID", "GeneName", "TranscriptID")
-      patient_counts <- read.table(file = patient_file, header = FALSE)
-      colnames(patient_counts) <- colnames
-      if (patient_counts$ID[1] == "ID") {
-        patient_counts <- patient_counts[-1,]
-      }
-      patient_counts <- patient_counts %>%
-        select(GeneName, Counts)
-      patient_counts$Counts <- as.numeric(patient_counts$Counts)
-      # there are multiple rows to each gene name. add up counts so that there is one row per gene
-      patient_counts <- aggregate(Counts ~ GeneName, patient_counts, sum)
-      
-      colnames(patient_counts)[2] <- patient_id
-      
-      if (i == 1) {
-        genes <- patient_counts$GeneName
-        pa_counts <- data.frame(patient_counts)
-        rm(patient_counts)
-      } else {
-        pa_counts <- merge(pa_counts, patient_counts, by = "GeneName")
-        rm(patient_counts)
-      }
-    }
-  }
-}
-
-########## Analyze Data ##########
-load("PA/Cohort/Cohort_BulkRNAseq.RData")
-
-pa_counts <- pa_counts %>% column_to_rownames(var = "GeneName")
-covariate_data <- meta_data %>% 
-  filter(UniqueSample == "Yes") %>%
-  column_to_rownames(var = "Subject ID") %>%
-  select("Location", "LocationSpecific", "AgeMonths", "Sex", "Molecular.1", "Molecular.2")
+meta_data <- read.csv(file = "PA/PA_Data/PA_cohort_metadata.csv")
+unique_samples <- meta_data$Sample.ID
+covariate_data <- meta_data %>% column_to_rownames(var = "Sample.ID") %>% 
+  select("gender", "Age..years.", "location_updated", "Primary.or.recurrent.") %>%
+  drop_na()
+colnames(covariate_data) <- c("Sex", "Age", "Location", "Stage")
 covariate_data$Location <- as.factor(covariate_data$Location)
-covariate_data$LocationSpecific <- as.factor(covariate_data$LocationSpecific)
 covariate_data$Sex <- as.factor(covariate_data$Sex)
 unique_samples <- rownames(covariate_data)
+
+load_data <- readRDS("Data/PMC/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
+count_data <- load_data$rawCounts %>% select(unique_samples)
+cpm_data <- load_data$counts %>% data.frame() %>% select(unique_samples)
+rm(load_data)
 
 xy_genes <- read.delim2("PA/PA_Data/xy_genes.txt", header = TRUE, sep = "\t", dec = ".")
 
 ## remove x and y linked genes
-genes_to_use <- setdiff(rownames(pa_counts), xy_genes$Approved.symbol)
-pa_cpm <- apply(pa_counts, 2, function(x) (x/sum(x))*1000000)
-countsLog <- log(pa_cpm[genes_to_use,] + 1)
+genes_to_use <- setdiff(rownames(count_data), xy_genes$Approved.symbol)
+
+countsLog <- log(cpm_data[genes_to_use,] + 1)
 varGenes <- apply(countsLog, 1, var)
 meanGenes <- apply(countsLog, 1, mean)
 nFeatures = 5000
 varFeatures <- names(varGenes)[order(varGenes, decreasing = T)][c(1:nFeatures)]
 dataScale <- apply(countsLog, 2, function(x) (x - meanGenes)/varGenes)
 
-save(pa_counts,
-     meta_data,
-     dataScale,
-     varFeatures,
-     covariate_data,
-     file = paste0(wd, "PA/Cohort/CohortBulkRNAseq_01.04.2022.RData"))
+# save(count_data, dataScale, varFeatures, covariate_data, 
+#      file = paste0(wd, "PA/PA_Data/PiloA_Data_09.02.2022.RData"))
 
 ########## Whole transcriptome analysis ##########
-load(file = "PA/Cohort/CohortBulkRNAseq_01.04.2022.RData")
+load(file = "PA/PA_Data/PiloA_Data_09.02.2022.RData")
+
 ### Dimensionality reduction ###
 ### PCA ###
 library(DESeq2)
 # library("gg3D")
 library(plotly)
-order <- colnames(pa_counts)
-covariate_data <- covariate_data[order,]
-# change medulla to brainstem
-covariate_data$LocationSpecific <- gsub(x = covariate_data$LocationSpecific, pattern = "medulla", replacement = "brain stem")
-dds_pca <- DESeqDataSetFromMatrix(countData = pa_counts,
+dds_pca <- DESeqDataSetFromMatrix(countData = count_data,
                               colData = covariate_data,
                               design = ~ 1)
-levels(dds_pca$Location) <- c("Spinal", "Posterior Fossa", "Supratentorial")
+levels(dds_pca$Location) <- c("Posterior.fossa", "Spinal", "Supratentorial")
 design(dds_pca) <- ~Location
 dds_pca <- DESeq(dds_pca, test = "LRT", reduced = ~ 1)
 vsd <- vst(dds_pca, blind = FALSE)
 
 # Select the most variably expressed genes -> these are non-x/y genes
+pca <- prcomp(t(assay(vsd)[varFeatures[1:420], ]))
+percentVar <- pca$sdev^2/sum(pca$sdev^2)
+d <- cbind(pca$x, covariate_data)
+
+pca_3d <- plot_ly(d, x = d$PC1, y = d$PC2, z = d$PC3, color = d$Location, colors = col_annotations$Location) %>%
+  add_markers()
+
+jpeg("/Users/jrozowsky/Desktop/")
+print(pca_3d)
+dev.off()
+
+ggplot(data = d, aes(x = PC1, y = PC2, color = Location)) +
+  geom_point()
+ggplot(data = d, aes(x = PC1, y = PC3, color = Location)) +
+  geom_point()
+ggplot(data = d, aes(x = PC3, y = PC4, color = Location)) +
+  geom_point()
+
 ### UMAP ###
 library(umap)
 library(ggforce)
-numGenes <- 600
-seed <- 1000
-
-pca <- prcomp(t(assay(vsd)[varFeatures[1:numGenes], ]))
-set.seed(seed); umap_res <- umap(pca$x, alpha = 0.62, gamma = 1)
-umap_data <- cbind(umap_res$layout, data.frame(dds_pca@colData))
-bulkUmapPlot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
-  geom_point(aes(fill = LocationSpecific), colour = "grey30", pch = 21, size = 2) + 
+set.seed(613); umap_res <- umap(pca$x, alpha=0.5, gamma=1)
+umap_data <- cbind(umap_res$layout, covariate_data)
+umap_plot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
+  geom_point(aes(fill = Location), colour = "grey30", pch = 21, size = 2) + 
   xlab("UMAP1") + ylab("UMAP2") +
   guides(col = guide_legend(ncol = 1)) +
-  scale_fill_manual(name = "Location", values = col_annotations$LocationSpecific) +
+  scale_color_manual(name = "Location", values = col_annotations$Location) +
+  scale_fill_manual(name = "Location", values = col_annotations$Location) +
   theme_classic() +
-  labs(subtitle = paste0("UMAP: varFeatures = ", numGenes, "; set.seed = ", seed)) +
   theme(panel.background = element_rect(colour = "grey30", size=1),
         axis.line = element_blank(),
-        plot.title = element_text(size = 20),
-        axis.ticks = element_blank(),
-        axis.text = element_blank())
+        plot.title = element_text(size = 20)) +
+  ylim(c(-2.7, 2.7)) +
+  xlim(c(-2.7, 2.7))
 
-pdf(paste0(fwd, "BulkCohortUMA_01.04.2022.pdf"), width = 6.5, height = 5)
-print(bulkUmapPlot)
+pdf(paste0(fwd, "UMAP.pdf"), width = 8, height = 6)
+print(umap_plot)
 dev.off()
 
 ### Unsupervised clustering ###
@@ -162,19 +118,19 @@ library(ComplexHeatmap)
 varFeatures_coding <- varFeatures[varFeatures %in% protein_genes]
 
 # calculate inter-patient correlation based on protein-coding gene expression
-corr_res <- cor(dataScale[varFeatures_coding[1:262],], method = "pearson")
-Heatmap(corr_res,
+corr_res <- cor(dataScale[varFeatures_coding[1:510],], method = "pearson")
+heatmap <- Heatmap(corr_res,
         show_heatmap_legend = TRUE,
         clustering_distance_rows = "euclidean",
         clustering_distance_columns = "euclidean",
         column_dend_height = unit(4, "cm"),
         row_names_gp = gpar(fontsize = 8),
-        top_annotation = HeatmapAnnotation(#Age = covariate_data$Age,
+        top_annotation = HeatmapAnnotation(Age = covariate_data$Age,
                                            Sex = covariate_data$Sex,
-                                           LocationSpecific = covariate_data$LocationSpecific,
+                                           Location = covariate_data$Location,
                                            col = col_annotations, 
                                            show_legend = TRUE),
-        show_row_names = FALSE,
+        show_row_names = TRUE,
         show_column_names = FALSE,
         show_row_dend = FALSE)
 pdf(paste0(fwd, "heatmap.pdf"))
