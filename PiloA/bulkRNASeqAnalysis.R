@@ -103,32 +103,31 @@ nFeatures = 5000
 varFeatures <- names(varGenes)[order(varGenes, decreasing = T)][c(1:nFeatures)]
 dataScale <- apply(countsLog, 2, function(x) (x - meanGenes)/varGenes)
 
-save(pa_counts,
-     meta_data,
-     dataScale,
-     varFeatures,
-     covariate_data,
-     file = paste0(wd, "PA/Cohort/CohortBulkRNAseq_01.04.2022.RData"))
-
 ########## Whole transcriptome analysis ##########
 load(file = "PA/Cohort/CohortBulkRNAseq_01.04.2022.RData")
 ### Dimensionality reduction ###
 ### PCA ###
 library(DESeq2)
-# library("gg3D")
-library(plotly)
 order <- colnames(pa_counts)
 covariate_data <- covariate_data[order,]
 # change medulla to brainstem
 covariate_data$LocationSpecific <- gsub(x = covariate_data$LocationSpecific, pattern = "medulla", replacement = "brain stem")
-dds_pca <- DESeqDataSetFromMatrix(countData = pa_counts,
+dds <- DESeqDataSetFromMatrix(countData = pa_counts,
                               colData = covariate_data,
                               design = ~ 1)
-levels(dds_pca$Location) <- c("Spinal", "Posterior Fossa", "Supratentorial")
-design(dds_pca) <- ~Location
-dds_pca <- DESeq(dds_pca, test = "LRT", reduced = ~ 1)
-vsd <- vst(dds_pca, blind = FALSE)
+dds$LocationSpecific <- factor(dds$LocationSpecific)
+dds$Location <- factor(dds$Location)
+design(dds) <- ~LocationSpecific
+dds <- DESeq(dds, test = "LRT", reduced = ~ 1)
+vsd <- vst(dds, blind = FALSE)
 
+save(pa_counts,
+     meta_data,
+     dataScale,
+     varFeatures,
+     covariate_data,
+     dds,
+     file = paste0(wd, "PA/PA_Data/CohortBulkRNAseq_02.04.2022.RData"))
 # Select the most variably expressed genes -> these are non-x/y genes
 ### UMAP ###
 library(umap)
@@ -162,15 +161,12 @@ library(ComplexHeatmap)
 varFeatures_coding <- varFeatures[varFeatures %in% protein_genes]
 
 # calculate inter-patient correlation based on protein-coding gene expression
-corr_res <- cor(dataScale[varFeatures_coding[1:262],], method = "pearson")
-Heatmap(corr_res,
+# corr_res <- cor(dataScale[varFeatures_coding[1:262],], method = "pearson")
+Heatmap(assay(vsd)[varFeatures[1:numGenes], ],
         show_heatmap_legend = TRUE,
         clustering_distance_rows = "euclidean",
         clustering_distance_columns = "euclidean",
-        column_dend_height = unit(4, "cm"),
-        row_names_gp = gpar(fontsize = 8),
-        top_annotation = HeatmapAnnotation(#Age = covariate_data$Age,
-                                           Sex = covariate_data$Sex,
+        top_annotation = HeatmapAnnotation(Sex = covariate_data$Sex,
                                            LocationSpecific = covariate_data$LocationSpecific,
                                            col = col_annotations, 
                                            show_legend = TRUE),
@@ -181,374 +177,123 @@ pdf(paste0(fwd, "heatmap.pdf"))
 print(heatmap)
 dev.off()
 
-### Consensus clustering ###
-library(ConsensusClusterPlus)
-d <- count_data
-mads=apply(d,1,mad)
-d=d[rev(order(mads))[1:5000],]
-d = sweep(d,1, apply(d,1,median,na.rm=T)) %>% as.matrix()
-results = ConsensusClusterPlus(d,
-                               maxK=6,
-                               reps=50,
-                               pItem=0.8,
-                               pFeature=1,
-                               title="title",
-                               clusterAlg="hc",
-                               distance="pearson",
-                               seed= 5,
-                               plot=NULL)
-
-########## Differential expression analysis ##########
-## Spinal vs Supratentorial ##
-res.sp_st <- results(dds_pca, alpha = 0.05, test = "Wald", contrast = c("Location", "Spinal", "Supratentorial"))
-res_tab.sp_st <- data.frame(res.sp_st[order(res.sp_st$padj)[1:5000],])
-res_tab.sp_st %>% 
-  mutate(threshold = padj < 0.001 & abs(log2FoldChange) >= 1) %>%
-  rownames_to_column() %>%
-  mutate(text = ifelse(threshold == TRUE, rowname, NA)) %>%
-  column_to_rownames(var = "rowname") %>%
-  ggplot(aes(x = log2FoldChange, y = -log10(padj), colour = threshold, label = text)) +
-  geom_point(alpha = 0.3) +
-  geom_text_repel(box.padding = 0.1, size = 2) +
-  ggtitle("DE Genes for Spinal vs Supratentorial PAs") +
-  xlab("log2 fold change") + 
-  ylab("-log10 adjusted p-value") +
-  theme(legend.position = "none",
-        plot.title = element_text(size = rel(1.5), hjust = 0.5),
-        axis.title = element_text(size = rel(1.25)))
-
-### Do not run
-ranks <- res_tab.spinal %>% 
-  rownames_to_column() %>%
-  dplyr::select(rowname, stat) %>%
-  na.omit() %>% 
-  distinct() %>% 
-  group_by(rowname) %>% 
-  summarize(stat=mean(stat)) %>%
-  deframe()
-
-pathways.hallmark <- gmtPathways("PA/PA_DataSets/h.all.v7.4.symbols.gmt")
-fgseaRes <- fgsea(pathways = pathways.hallmark, stats = ranks, nperm = 1000)
-fgseaResTidy <- fgseaRes %>%
-  as_tibble() %>%
-  arrange(desc(NES))
-ggplot(fgseaResTidy, aes(reorder(pathway, NES), NES)) +
-  geom_col(aes(fill=padj<0.05)) +
-  coord_flip() +
-  labs(x="Pathway", y="Normalized Enrichment Score",
-       title="Hallmark pathways NES from GSEA") + 
-  theme_minimal()
-
-## Spinal vs PF ##
-res.sp_pf <- results(dds_pca, alpha = 0.05, test = "Wald", contrast = c("Location", "Spinal", "Posterior.fossa"))
-res_tab.sp_pf <- data.frame(res.sp_pf[order(res.sp_pf$padj)[1:5000],])
-res_tab.sp_pf %>% 
-  mutate(threshold = padj < 0.001 & abs(log2FoldChange) >= 1) %>%
-  rownames_to_column() %>%
-  mutate(text = ifelse(threshold == TRUE, rowname, NA)) %>%
-  column_to_rownames(var = "rowname") %>%
-  ggplot(aes(x = log2FoldChange, y = -log10(padj), colour = threshold, label = text)) +
-  geom_point(alpha = 0.3) +
-  geom_text_repel(box.padding = 0.1, size = 2) +
-  ggtitle("DE Genes for Spinal vs Posterior fossa PAs") +
-  xlab("log2 fold change") + 
-  ylab("-log10 adjusted p-value") +
-  theme(legend.position = "none",
-        plot.title = element_text(size = rel(1.5), hjust = 0.5),
-        axis.title = element_text(size = rel(1.25)))
-
-## PF vs Supratentorial ##
-res.st_pf <- results(dds_pca, alpha = 0.05, test = "Wald", contrast = c("Location", "Supratentorial", "Posterior.fossa"))
-res_tab.st_pf <- data.frame(res.st_pf[order(res.st_pf$padj)[1:5000],])
-res_tab.st_pf %>% 
-  mutate(threshold = padj < 0.001 & abs(log2FoldChange) >= 1) %>%
-  rownames_to_column() %>%
-  mutate(text = ifelse(threshold == TRUE, rowname, NA)) %>%
-  column_to_rownames(var = "rowname") %>%
-  ggplot(aes(x = log2FoldChange, y = -log10(padj), colour = threshold, label = text)) +
-  geom_point(alpha = 0.3) +
-  geom_text_repel(box.padding = 0.1, size = 2) +
-  ggtitle("DE Genes for Supratentorial vs Posterior fossa PAs") +
-  xlab("log2 fold change") + 
-  ylab("-log10 adjusted p-value") +
-  theme(legend.position = "none",
-        plot.title = element_text(size = rel(1.5), hjust = 0.5),
-        axis.title = element_text(size = rel(1.25)))
-
 ########## Functional enrichment analysis ##########
 library(fgsea)
 library(org.Hs.eg.db)
 library(fgsea)
 library(clusterProfiler)
 library(DESeq2)
-load(file = paste0(wd, "PA/PA_Data/PiloA_GSEA_13.02.2022.RData"))
-annotations_ahb %>% filter(gene_biotype == "protein_coding") %>% pull(gene_name) -> protein_genes
+load("PA/PA_Data/CohortBulkRNAseq_02.04.2022.RData")
+
+spinal_patients <- rownames(covariate_data)[covariate_data$LocationSpecific == "spinal cord"]
+posteriorFossa_patients <- rownames(covariate_data)[covariate_data$LocationSpecific %in% c("cerebellum/4th", "brain stem")]
+diencephalon_patients <- rownames(covariate_data)[covariate_data$LocationSpecific == "diencephalon"]
+cerebralHemisphere_patients <- rownames(covariate_data)[covariate_data$LocationSpecific == "cerebral hemisphere"]
 
 covariate_data <- covariate_data %>%
-  mutate(Spinal_Loc = ifelse(Location == "Spinal", "Spinal", "Not.spinal")) %>%
-  mutate(PF_Loc = ifelse(Location == "Posterior fossa", "Posterior fossa", "Not.PF")) %>%
-  mutate(ST_Loc = ifelse(Location == "Supratentorial", "Supratentorial", "Not.ST"))
-covariate_data$Spinal_Loc <- as.factor(covariate_data$Spinal_Loc)
-covariate_data$PF_Loc <- as.factor(covariate_data$PF_Loc)
-covariate_data$ST_Loc <- as.factor(covariate_data$ST_Loc)
+  mutate(Spinal = as.factor(ifelse(rownames(covariate_data) %in% spinal_patients, "Spinal", "not.Spinal")),
+         PosteriorFossa = as.factor(ifelse(rownames(covariate_data) %in% posteriorFossa_patients, "PosteriorFossa", "not.PosteriorFossa")),
+         Diencephalon = as.factor(ifelse(rownames(covariate_data) %in% diencephalon_patients, "Diencephalon", "not.Diencephalon")),
+         Cerebral = as.factor(ifelse(rownames(covariate_data) %in% cerebralHemisphere_patients, "CerebralHemisphere", "not.CerebralHemisphere")))
 
-## Spinal vs others ##
-dds_sp <- DESeqDataSetFromMatrix(countData = count_data,
-                              colData = covariate_data,
-                              design = ~ Spinal_Loc)
+# Make all DDS objects
+dds_sp <- DESeqDataSetFromMatrix(countData = pa_counts,
+                                    colData = covariate_data,
+                                    design = ~ Spinal)
 dds_sp <- DESeq(dds_sp)
-vsd_sp <- vst(dds_sp, blind = FALSE)
 
-res.spinal <- results(dds_sp, alpha = 0.05, test = "Wald", contrast = c("Spinal_Loc", "Spinal", "Not.spinal"))
-res_tab.spinal <- data.frame(res.spinal[order(res.spinal$padj)[1:5000],])
-res_tab.spinal <- left_join(res_tab.spinal %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
-all_genes.spinal <- as.character(res_tab.spinal$gene_id)
-
-sig_num.spinal <- res_tab.spinal %>%
-  filter(padj < 0.001) %>%
-  pull(rowname) %>% length()
-# 539 genes are differentially expressed in spinal tumors vs other PAs
-top15_genes.spinal <- res_tab.spinal %>%
-  filter(log2FoldChange > 0) %>%
-  filter(rowname %in% protein_genes) %>%
-  arrange(padj) %>%
-  top_n(n = -15, padj) %>% pull(rowname)
-
-sigOE_spinal <- dplyr::filter(res_tab.spinal, padj < 0.05 & log2FoldChange > 0) %>%
-  dplyr::select(gene_id) %>% na.omit()
-sigOE_spinal <- as.character(sigOE_spinal$gene_id)
-sigUE_spinal <- dplyr::filter(res_tab.spinal, padj < 0.05 & log2FoldChange < 0) %>%
-  dplyr::select(gene_id) %>% na.omit()
-sigUE_spinal <- as.character(sigUE_spinal$gene_id)
-
-res_tab.spinal %>% 
-  mutate(threshold = padj < 0.001) %>%
-  mutate(text = ifelse(threshold == TRUE, rowname, NA)) %>%
-  column_to_rownames(var = "rowname") %>%
-  ggplot(aes(x = log2FoldChange, y = -log10(padj), colour = threshold, label = text)) +
-  geom_point(alpha = 0.3) +
-  geom_text_repel(box.padding = 0.1, size = 2) +
-  ggtitle("DE Genes for Spinal vs Non-spinal PAs") +
-  xlab("log2 fold change") + 
-  ylab("-log10 adjusted p-value") +
-  theme(legend.position = "none",
-        plot.title = element_text(size = rel(1.5), hjust = 0.5),
-        axis.title = element_text(size = rel(1.25)))
-
-spUE_GO <- enrichGO(gene = sigUE_spinal, 
-                    universe = all_genes.spinal,
-                    OrgDb = org.Hs.eg.db, 
-                    keyType = 'ENSEMBL',
-                    ont = "BP", 
-                    pAdjustMethod = "BH", 
-                    qvalueCutoff = 0.05, 
-                    readable = TRUE) %>%
-  enrichplot::pairwise_termsim() %>%
-  dotplot(x = "GeneRatio",
-          showCategory = 20,
-          font.size = 8,
-          title = "Pathways under-enriched in spinal tumors")
-spOE_GO <- enrichGO(gene = sigOE_spinal, 
-                    universe = all_genes.spinal,
-                    OrgDb = org.Hs.eg.db, 
-                    keyType = 'ENSEMBL',
-                    ont = "BP", 
-                    pAdjustMethod = "BH", 
-                    qvalueCutoff = 0.05, 
-                    readable = TRUE) %>%
-  enrichplot::pairwise_termsim() %>%
-  dotplot(x = "GeneRatio",
-          showCategory = 20,
-          font.size = 8,
-          title = "Pathways enriched in spinal tumors")
-pdf(paste0(fwd, "spinal_GO.pdf"))
-par(mfrow = c(1, 2))
-print(spUE_GO)
-print(spOE_GO)
-dev.off()
-
-spinal_gsea_file <- res_tab.spinal %>%
-  filter(padj < 0.01) %>%
-  select(rowname, log2FoldChange) %>%
-  arrange(-log2FoldChange)
-write.table(x = spinal_gsea_file, 
-            file = paste0(wd, "PA/PA_Data/spinal_geneList.txt"),
-            sep = "\t",
-            row.names = FALSE)
-spinal_gProf_list <- res_tab.spinal %>%
-  filter(padj < 0.05 & log2FoldChange >= 0) %>%
-  pull(rowname)
-spinal_gProf_list[spinal_gProf_list %in% protein_genes] -> spinal_gProf_list
-write(x = spinal_gProf_list,
-      file = paste0(wd, "PA/PA_Data/spinal_OE_geneList.txt"),
-      sep = "\t")
-
-## PF vs others ##
-dds_pf <- DESeqDataSetFromMatrix(countData = count_data,
+dds_pf <- DESeqDataSetFromMatrix(countData = pa_counts,
                                  colData = covariate_data,
-                                 design = ~ PF_Loc)
+                                 design = ~ PosteriorFossa)
 dds_pf <- DESeq(dds_pf)
-vsd_pf <- vst(dds_pf, blind = FALSE)
 
-res.pf <- results(dds_pf, alpha = 0.05, test = "Wald", contrast = c("PF_Loc", "Posterior fossa", "Not.PF"))
-res_tab.pf <- data.frame(res.pf[order(res.pf$padj)[1:5000],])
-res_tab.pf <- left_join(res_tab.pf %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
-all_genes.pf <- as.character(res_tab.pf$gene_id)
-
-sig_num.pf <- res_tab.pf %>%
-  filter(padj < 0.001) %>%
-  pull(rowname) %>% length()
-# 1736 genes are differentially expressed in PF tumors vs other PAs
-top15_genes.pf <- res_tab.pf %>%
-  filter(log2FoldChange > 0) %>%
-  filter(rowname %in% protein_genes) %>%
-  arrange(padj) %>%
-  top_n(n = -15, padj) %>% pull(rowname)
-
-sigOE_pf <- dplyr::filter(res_tab.pf, padj < 0.05 & log2FoldChange > 0) %>%
-  dplyr::select(gene_id) %>% na.omit()
-sigOE_pf <- as.character(sigOE_pf$gene_id)
-
-sigUE_pf <- dplyr::filter(res_tab.pf, padj < 0.05 & log2FoldChange < 0) %>%
-  dplyr::select(gene_id) %>% na.omit()
-sigUE_pf <- as.character(sigUE_pf$gene_id)
-
-pfUE_GO <- enrichGO(gene = sigUE_pf, 
-                    universe = all_genes.pf,
-                    OrgDb = org.Hs.eg.db, 
-                    keyType = 'ENSEMBL',
-                    ont = "BP", 
-                    pAdjustMethod = "BH", 
-                    qvalueCutoff = 0.05, 
-                    readable = TRUE) %>%
-  enrichplot::pairwise_termsim() %>%
-  dotplot(x = "GeneRatio",
-          showCategory = 20,
-          font.size = 8,
-          title = "Pathways under-enriched in posterior fossa tumors")
-pfOE_GO <- enrichGO(gene = sigOE_pf, 
-                    universe = all_genes.pf,
-                    OrgDb = org.Hs.eg.db, 
-                    keyType = 'ENSEMBL',
-                    ont = "BP", 
-                    pAdjustMethod = "BH", 
-                    qvalueCutoff = 0.05, 
-                    readable = TRUE) %>%
-  enrichplot::pairwise_termsim() %>%
-  dotplot(x = "GeneRatio",
-          showCategory = 20,
-          font.size = 8,
-          title = "Pathways enriched in posterior fossa tumors")
-
-pdf(paste0(fwd, "pf_GO.pdf"))
-par(mfrow = c(1, 2))
-print(pfUE_GO)
-print(pfOE_GO)
-dev.off()
-
-pf_gsea_file <- res_tab.pf %>%
-  filter(padj < 0.01) %>%
-  select(rowname, log2FoldChange) %>%
-  arrange(-log2FoldChange)
-write.table(x = pf_gsea_file, 
-            file = "PA/PA_Data/pf_geneList.txt",
-            sep = "\t",
-            row.names = FALSE)
-
-pf_gProf_list <- res_tab.pf %>%
-  filter(padj < 0.05 & log2FoldChange >= 0) %>%
-  pull(rowname)
-pf_gProf_list[pf_gProf_list %in% protein_genes] -> pf_gProf_list
-write(x = pf_gProf_list,
-      file = paste0(wd, "PA/PA_Data/pf_OE_geneList.txt"),
-      sep = "\t")
-
-## ST vs others ##
-dds_st <- DESeqDataSetFromMatrix(countData = count_data,
+dds_d <- DESeqDataSetFromMatrix(countData = pa_counts,
                                  colData = covariate_data,
-                                 design = ~ ST_Loc)
-dds_st <- DESeq(dds_st)
-vsd_st <- vst(dds_st, blind = FALSE)
+                                 design = ~ Diencephalon)
+dds_d <- DESeq(dds_d)
 
-res.st <- results(dds_st, alpha = 0.05, test = "Wald", contrast = c("ST_Loc", "Supratentorial", "Not.ST"))
-res_tab.st <- data.frame(res.st[order(res.st$padj)[1:5000],])
-res_tab.st <- left_join(res_tab.st %>% rownames_to_column(), annotations_ahb,  by=c("rowname"="gene_name"))
-all_genes.st <- as.character(res_tab.st$gene_id)
+dds_ch <- DESeqDataSetFromMatrix(countData = pa_counts,
+                                 colData = covariate_data,
+                                 design = ~ Cerebral)
+dds_ch <- DESeq(dds_ch)
 
-sig_num.st <- res_tab.st %>%
-  filter(padj < 0.001) %>%
-  pull(rowname) %>% length()
-# 1082 genes are differentially expressed in PF tumors vs other PAs
-top15_genes.st <- res_tab.st %>%
-  filter(log2FoldChange > 0) %>%
-  filter(rowname %in% protein_genes) %>%
-  arrange(padj) %>%
-  top_n(n = -15, padj) %>% pull(rowname)
+save(dds_ch, dds_d, dds_pf, dds_sp, file = paste0(wd, "PA/PA_Data/DESeqBulkCohort_02.04.2022.RData"))
 
-sigOE_st <- dplyr::filter(res_tab.st, padj < 0.05 & log2FoldChange > 0) %>%
-  dplyr::select(gene_id) %>% na.omit()
-sigOE_st <- as.character(sigOE_st$gene_id)
+cnsLocation <- c("Cerebral", "Diencephalon", "PosteriorFossa", "Spinal")
+contrasts <- list(Cerebral = c("Cerebral", "CerebralHemisphere", "not.CerebralHemisphere"),
+                  Diencephalon = c("Diencephalon", "Diencephalon", "not.Diencephalon"),
+                  PosteriorFossa = c("PosteriorFossa", "PosteriorFossa", "not.PosteriorFossa"),
+                  Spinal = c("Spinal", "Spinal", "not.Spinal"))
+dds_objects <- objects()[grep("dds_", objects())]
+for (i in 1:length(dds_objects)) {
+  # initialize the location and datasets
+  dds_loc <- get(dds_objects[i])
+  temp <- as.character(dds_loc@design) %>% strsplit(split = "~") %>% sapply(getElement, 1)
+  location <- temp[2]
+  contrast <- contrasts[[location]]
+  print(location)
+  print(contrast)
+  
+  # perform differential expression
+  res <- results(dds_loc, alpha = 0.05, test = "Wald", contrast = contrast)
+  res.tab <- data.frame(res[order(res$padj)[1:5000],])
+  res.tab <- left_join(res.tab %>% rownames_to_column(), annotations_ahb, by=c("rowname"="gene_name"))
+  
+  # select most enriched genes for this location
+  nGenes <- 15
+  top_genes <- res.tab %>%
+    filter(rowname %in% protein_genes) %>%
+    top_n(n = nGenes, log2FoldChange) %>%
+    arrange(-log2FoldChange) %>% pull(rowname)
+  
+  OEgenes <- filter(res.tab, padj < 0.05 & log2FoldChange > 0) %>% arrange(-log2FoldChange) %>% pull(gene_id)
+  UEgenes <- filter(res.tab, padj < 0.05 & log2FoldChange < 0) %>% arrange(log2FoldChange) %>% pull(gene_id)
+  
+  UE_GO <- enrichGO(gene = UEgenes,
+                      universe = as.character(res.tab$gene_id),
+                      OrgDb = org.Hs.eg.db,
+                      keyType = 'ENSEMBL',
+                      ont = "BP",
+                      pAdjustMethod = "BH",
+                      qvalueCutoff = 0.05,
+                      readable = TRUE) %>%
+    enrichplot::pairwise_termsim() %>%
+    dotplot(x = "GeneRatio",
+            showCategory = 20,
+            font.size = 8,
+            title = paste0("Pathways under-enriched in ", location, " tumors"))
+  OE_GO <- enrichGO(gene = OEgenes,
+           universe = as.character(res.tab$gene_id),
+           OrgDb = org.Hs.eg.db,
+           keyType = 'ENSEMBL',
+           ont = "BP",
+           pAdjustMethod = "BH",
+           qvalueCutoff = 0.05,
+           readable = TRUE) %>%
+    enrichplot::pairwise_termsim() %>%
+    dotplot(x = "GeneRatio",
+            showCategory = 20,
+            font.size = 8,
+            title = paste0("Pathways over-enriched in ", location, " tumors"))
 
-sigUE_st <- dplyr::filter(res_tab.st, padj < 0.05 & log2FoldChange < 0) %>%
-  dplyr::select(gene_id) %>% na.omit()
-sigUE_st <- as.character(sigUE_st$gene_id)
-
-stUE_GO <- enrichGO(gene = sigUE_st, 
-                    universe = all_genes.st,
-                    OrgDb = org.Hs.eg.db, 
-                    keyType = 'ENSEMBL',
-                    ont = "BP", 
-                     pAdjustMethod = "BH", 
-                     qvalueCutoff = 0.05, 
-                     readable = TRUE) %>%
-  enrichplot::pairwise_termsim() %>%
-  dotplot(x = "GeneRatio",
-          showCategory = 20,
-          font.size = 8,
-          title = "Pathways under-enriched in supratentorial tumors")
-stOE_GO <- enrichGO(gene = sigOE_st, 
-                    universe = all_genes.st,
-                    OrgDb = org.Hs.eg.db, 
-                    keyType = 'ENSEMBL',
-                    ont = "BP", 
-                    pAdjustMethod = "BH", 
-                    qvalueCutoff = 0.05, 
-                    readable = TRUE) %>%
-  enrichplot::pairwise_termsim() %>%
-  dotplot(x = "GeneRatio",
-          showCategory = 20,
-          font.size = 8,
-          title = "Pathways enriched in supratentorial tumors")
-
-pdf(paste0(fwd, "st_GO.pdf"))
-par(mfrow = c(1, 2))
-print(stUE_GO)
-print(stOE_GO)
-dev.off()
-
-st_gsea_file <- res_tab.st %>%
-  filter(padj < 0.01) %>%
-  select(rowname, log2FoldChange) %>%
-  arrange(-log2FoldChange)
-write.table(x = st_gsea_file, 
-            file = paste0(wd, "PA/PA_Data/st_geneList.txt"),
-            sep = "\t",
-            row.names = FALSE)
-
-st_gProf_list <- res_tab.st %>%
-  filter(padj < 0.05 & log2FoldChange >= 0) %>%
-  pull(rowname)
-st_gProf_list[st_gProf_list %in% protein_genes] -> st_gProf_list
-write(x = st_gProf_list,
-      file = paste0(wd, "PA/PA_Data/st_OE_geneList.txt"),
-      sep = "\t")
-
-# save(annotations_ahb, dds_pca, dds_sp, dds_pf, dds_st, 
-#      file = paste0(wd, "PA/PA_Data/PiloA_GSEA_13.02.2022.RData"))
-
+  pdf(paste0(fwd, "Bulk.GOenrichmentPlot.", location, "_02.04.2022.pdf"))
+  par(mfrow = c(1, 2))
+  print(UE_GO)
+  print(OE_GO)
+  dev.off()
+  
+  gProf.genes_entrz <- filter(res.tab, padj < 0.05 & log2FoldChange > 0) %>% filter(gene_biotype == "protein_coding") %>% arrange(-log2FoldChange) %>% pull(gene_id)
+  gProf.genes_symbol <- filter(res.tab, padj < 0.05 & log2FoldChange > 0) %>% filter(gene_biotype == "protein_coding") %>% arrange(-log2FoldChange) %>% pull(rowname)
+  write(x = gProf.genes_entrz,
+        file = paste0(wd, "PA/PA_Data/gProfiler_entrz.", location, "_02.04.2022.txt"),
+        sep = "\t")
+  write(x = gProf.genes_symbol,
+        file = paste0(wd, "PA/PA_Data/gProfiler_symbol.", location, "_02.04.2022.txt"),
+        sep = "\t")
+}
 
 library(edgeR)
-logCPM <- cpm(count_data, prior.count = 2, log = TRUE)
+logCPM <- cpm(pa_counts, prior.count = 2, log = TRUE)
 zScore <- t(scale(t(logCPM)))
 genes_for_fig <- c(top15_genes.pf[1:10], top15_genes.spinal[1:10], top15_genes.st[1:10])
 genes_for_fig <- genes_for_fig[genes_for_fig %in% rownames(dataScale)]
@@ -657,9 +402,9 @@ dev.off()
 ### Make bulk and single-cell expression sets
 scPA_eset <- readRDS("PA/Analysis/Deconvolution/DWLS/PA_singleCellReitman.RDS")
 sc_genes <- rownames(scPA_eset@assayData[["exprs"]])
-meta_genes <- unique(intersect(sc_genes, rownames(count_data)))
+meta_genes <- unique(intersect(sc_genes, rownames(pa_counts)))
 
-bulkPA_eset <- ExpressionSet(assayData = as.matrix(count_data[meta_genes,]))
+bulkPA_eset <- ExpressionSet(assayData = as.matrix(pa_counts[meta_genes,]))
 
 ### Run MuSiC ###
 library(MuSiC)
@@ -757,7 +502,7 @@ ggplot(data = deconv_byLocation[deconv_byLocation$Cluster == "Tumor",],
 #        width = 10, height = 7)
 
 ########## CIBERSORTx ##########
-# write.csv(count_data, file = paste0(wd, "PA/Analysis/Deconvolution/CIBERSORTx/Bulk_PA_forDeconv.csv"))
+# write.csv(pa_counts, file = paste0(wd, "PA/Analysis/Deconvolution/CIBERSORTx/Bulk_PA_forDeconv.csv"))
 
 PA_cibersortx_LM22 <- read.csv("PA/Analysis/Deconvolution/CIBERSORTx/PA_cibersortx_LM22.csv")
 PA_lm22 <- PA_cibersortx_LM22[,1:23] %>%
