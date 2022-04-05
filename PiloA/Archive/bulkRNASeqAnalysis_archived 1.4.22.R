@@ -454,9 +454,9 @@ stUE_GO <- enrichGO(gene = sigUE_st,
                     OrgDb = org.Hs.eg.db, 
                     keyType = 'ENSEMBL',
                     ont = "BP", 
-                     pAdjustMethod = "BH", 
-                     qvalueCutoff = 0.05, 
-                     readable = TRUE) %>%
+                    pAdjustMethod = "BH", 
+                    qvalueCutoff = 0.05, 
+                    readable = TRUE) %>%
   enrichplot::pairwise_termsim() %>%
   dotplot(x = "GeneRatio",
           showCategory = 20,
@@ -499,8 +499,8 @@ write(x = st_gProf_list,
       file = paste0(wd, "PA/PA_Data/st_OE_geneList.txt"),
       sep = "\t")
 
-# save(annotations_ahb, dds_pca, dds_sp, dds_pf, dds_st, 
-#      file = paste0(wd, "PA/PA_Data/PiloA_GSEA_13.02.2022.RData"))
+save(annotations_ahb, dds_pca, dds_sp, dds_pf, dds_st, 
+      file = paste0(wd, "PA/PA_Data/PiloA_GSEA_13.02.2022.RData"))
 
 
 library(edgeR)

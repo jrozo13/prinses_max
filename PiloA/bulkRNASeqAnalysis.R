@@ -31,7 +31,7 @@ annotations_ahb %>% filter(gene_biotype == "protein_coding") %>% pull(gene_name)
 
 ########## Prepare Data ##########
 # compile all patient IDs
-file.path <- paste0(wd, "Data/PMC/RNA_jacob/")
+file.path <- paste0(wd, "Data/PMC/RNA_jacob/UniqueFilesFromBiobank/")
 files <- paste0(list.files(path = file.path))
 
 meta_data <- read_excel(path = "PA/Cohort/ClinicalData_updates.xlsx", sheet = "CohortList")
@@ -64,24 +64,92 @@ for (i in 1:length(files)) {
       # there are multiple rows to each gene name. add up counts so that there is one row per gene
       patient_counts <- aggregate(Counts ~ GeneName, patient_counts, sum)
       
-      colnames(patient_counts)[2] <- patient_id
-      
-      if (i == 1) {
-        genes <- patient_counts$GeneName
-        pa_counts <- data.frame(patient_counts)
-        rm(patient_counts)
-      } else {
-        pa_counts <- merge(pa_counts, patient_counts, by = "GeneName")
-        rm(patient_counts)
+      # there were 2 samples with different number of genes
+      # obtained those samples from Lennart's data
+      if(length(rownames(patient_counts)) == 58804) {
+        
+        colnames(patient_counts)[2] <- patient_id
+        
+        if (i == 1) {
+          genes <- patient_counts$GeneName
+          pa_counts <- data.frame(patient_counts)
+          rm(patient_counts)
+        } else {
+          pa_counts <- merge(pa_counts, patient_counts, by = "GeneName")
+          rm(patient_counts)
+        }
       }
     }
   }
 }
+pa_counts <- pa_counts %>% column_to_rownames(var = "GeneName")
+
+load_data <- readRDS("Data/PMC/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
+select_samples <- c("PMABM000FIW", "PMABM000FEH")
+all_counts <- load_data$rawCounts
+select_counts <- all_counts %>% select(select_samples)
+select_counts <- select_counts[rownames(pa_counts),]
+colnames(select_counts) <- c("PMCID577AAM", "PMCID158AAM")
+
+pa_counts <- cbind(pa_counts, select_counts)
+
+########## Quality controls ##########
+# Compare read counts between Biobank and Lennart RNAseq data
+load(file = "PA/PA_Data/PiloA_Data_09.02.2022.RData") # old dataset from Lennart
+rm(varFeatures, covariate_data, dataScale)
+(rownames(count_data) %in% rownames(pa_counts)) %>% table()
+count_data <- count_data[rownames(pa_counts), ]
+identical(rownames(count_data), rownames(pa_counts))
+# the two datasets have the same genes --> check!
+no_consent <- setdiff(colnames(count_data), meta_data$PMABM[meta_data$UniqueSample == "Yes"])
+no_consent <- no_consent[-9]
+matching_samples <- intersect(colnames(count_data), meta_data$PMABM[meta_data$UniqueSample == "Yes"])
+count_data <- count_data[, matching_samples]
+
+# replace PMABM ids with PMCIDs in count_data
+for (sample in colnames(count_data)) {
+  pmcid <- meta_data$`Subject ID`[meta_data$PMABM == sample]
+  print(c(sample, pmcid))
+  colnames(count_data)[colnames(count_data) == sample] <- pmcid
+}
+count_data <- count_data[, intersect(colnames(count_data), colnames(pa_counts))]
+
+match <- c()
+mismatch <- c()
+for (sample in colnames(count_data)) {
+  lennart_data <- count_data %>% select(sample)
+  biobank_data <- pa_counts %>% select(sample)
+  print(sample)
+  res <- (lennart_data == biobank_data) %>% table()
+  t <- res["TRUE"]
+  if (t == 58804) {
+    f = 0
+  }
+  if (t != 58804) {
+    f = res["FALSE"]
+  }
+  match <- c(match, t)
+  mismatch <- c(mismatch, f)
+}
+compare <- data.frame(Match = match, Mismatch = mismatch, row.names = colnames(count_data))
+mismatch_pmcid <- rownames(compare)[compare$Mismatch > 0]
+compare <- compare[mismatch_pmcid,]
+mismatch_pmabm <- meta_data$PMABM[meta_data$`Subject ID` %in% mismatch_pmcid]
+
+compare$Correlation <- c()
+for (i in 1:length(rownames(compare))) {
+  sample <- rownames(compare)[i]
+  correlation <- cor(pa_counts %>% select(sample),
+                     count_data %>% select(sample))
+  compare$Correlation[i] <- correlation
+}
+compare2 <- compare
+rownames(compare2) <- mismatch_pmabm
+mismatch2_pmabm <- meta_data$PMABM[meta_data$`Subject ID` %in% mismatch_pmcid]
+# 11 of the samples do not have the same counts between Lennart and biobank data
+# This is probably because we are using different outputs from the analysis
 
 ########## Analyze Data ##########
-load("PA/Cohort/Cohort_BulkRNAseq.RData")
-
-pa_counts <- pa_counts %>% column_to_rownames(var = "GeneName")
 covariate_data <- meta_data %>% 
   filter(UniqueSample == "Yes") %>%
   column_to_rownames(var = "Subject ID") %>%
@@ -104,7 +172,6 @@ varFeatures <- names(varGenes)[order(varGenes, decreasing = T)][c(1:nFeatures)]
 dataScale <- apply(countsLog, 2, function(x) (x - meanGenes)/varGenes)
 
 ########## Whole transcriptome analysis ##########
-load(file = "PA/Cohort/CohortBulkRNAseq_01.04.2022.RData")
 ### Dimensionality reduction ###
 ### PCA ###
 library(DESeq2)
@@ -121,37 +188,84 @@ design(dds) <- ~LocationSpecific
 dds <- DESeq(dds, test = "LRT", reduced = ~ 1)
 vsd <- vst(dds, blind = FALSE)
 
-save(pa_counts,
-     meta_data,
-     dataScale,
-     varFeatures,
-     covariate_data,
-     dds,
-     file = paste0(wd, "PA/PA_Data/CohortBulkRNAseq_02.04.2022.RData"))
+# save(pa_counts,
+#      meta_data,
+#      dataScale,
+#      varFeatures,
+#      covariate_data,
+#      dds,
+#      vsd,
+#      file = paste0(wd, "PA/PA_Data/CohortBulkRNAseq_04.04.2022.RData"))
+load("PA/PA_Data/CohortBulkRNAseq_04.04.2022.RData")
 # Select the most variably expressed genes -> these are non-x/y genes
 ### UMAP ###
 library(umap)
 library(ggforce)
-numGenes <- 600
-seed <- 1000
+library(DESeq2)
+numGenes <- 1200
+seed <- 613
 
+p <- list()
+i = 1
+#for (numGenes in seq(from = 1000, to = 2000, by = 100)) {
+#for (seed in sample.int(1000, 12)) {
+for (seed in c(613, 418, 790, 19)) {
+  numGenes = 1200
+  alpha = 0.7
+  gamma = 1
+  pca <- prcomp(t(assay(vsd)[varFeatures[1:numGenes], ]))
+  #umap_res <- umap(pca$x, alpha=0.4, gamma=1)
+  set.seed(seed); umap_res <- umap(pca$x, alpha = alpha, gamma = gamma)
+  umap_data <- cbind(umap_res$layout, data.frame(dds@colData))
+  bulkUmapPlot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
+    geom_point(aes(fill = LocationSpecific), colour = "grey30", pch = 21, size = 2) + 
+    xlab("UMAP1") + ylab("UMAP2") +
+    guides(col = guide_legend(ncol = 1)) +
+    scale_fill_manual(name = "Location", values = col_annotations$LocationSpecific) +
+    theme_classic() +
+    labs(subtitle = paste0("UMAP: varFeatures = ", numGenes, 
+                           "; seed = ", seed,
+                           "; alpha = ", alpha,
+                           "; gamma = ", gamma)) +
+    theme(panel.background = element_rect(colour = "grey30", size=1), 
+          axis.line = element_blank(),
+          plot.subtitle = element_text(size = 7.5),
+          axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          legend.position = "none")
+  p[[i]] <- bulkUmapPlot
+  i = i + 1
+}
+do.call(grid.arrange,p)
+# numGenes = 1200; alpha = 0.7; gamma = 1 looks best
+# seed: 613, 418, 790, 19
+
+
+numGenes = 1200
+alpha = 0.7
+gamma = 1
+seed = 19
 pca <- prcomp(t(assay(vsd)[varFeatures[1:numGenes], ]))
-set.seed(seed); umap_res <- umap(pca$x, alpha = 0.62, gamma = 1)
-umap_data <- cbind(umap_res$layout, data.frame(dds_pca@colData))
+#umap_res <- umap(pca$x, alpha=0.4, gamma=1)
+set.seed(seed); umap_res <- umap(pca$x, alpha = alpha, gamma = gamma)
+umap_data <- cbind(umap_res$layout, data.frame(dds@colData))
 bulkUmapPlot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
   geom_point(aes(fill = LocationSpecific), colour = "grey30", pch = 21, size = 2) + 
   xlab("UMAP1") + ylab("UMAP2") +
   guides(col = guide_legend(ncol = 1)) +
   scale_fill_manual(name = "Location", values = col_annotations$LocationSpecific) +
   theme_classic() +
-  labs(subtitle = paste0("UMAP: varFeatures = ", numGenes, "; set.seed = ", seed)) +
-  theme(panel.background = element_rect(colour = "grey30", size=1),
+  labs(title = "PMC cohort: pilocytic astrocyoma",
+       subtitle = "colored by CNS location") +
+  theme(panel.background = element_rect(colour = "grey30", size=1), 
         axis.line = element_blank(),
-        plot.title = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
         axis.ticks = element_blank(),
-        axis.text = element_blank())
+        axis.text = element_blank(),
+        legend.position = "right")
 
-pdf(paste0(fwd, "BulkCohortUMA_01.04.2022.pdf"), width = 6.5, height = 5)
+pdf(paste0(fwd, "BulkCohortUMAP_05.04.2022.pdf"), width = 7.75, height = 6.5)
 print(bulkUmapPlot)
 dev.off()
 
@@ -183,18 +297,20 @@ library(org.Hs.eg.db)
 library(fgsea)
 library(clusterProfiler)
 library(DESeq2)
-load("PA/PA_Data/CohortBulkRNAseq_02.04.2022.RData")
+# load("PA/PA_Data/CohortBulkRNAseq_04.04.2022.RData")
 
 spinal_patients <- rownames(covariate_data)[covariate_data$LocationSpecific == "spinal cord"]
 posteriorFossa_patients <- rownames(covariate_data)[covariate_data$LocationSpecific %in% c("cerebellum/4th", "brain stem")]
 diencephalon_patients <- rownames(covariate_data)[covariate_data$LocationSpecific == "diencephalon"]
 cerebralHemisphere_patients <- rownames(covariate_data)[covariate_data$LocationSpecific == "cerebral hemisphere"]
+supratentorial_patient <- c(diencephalon_patients, cerebralHemisphere_patients)
 
 covariate_data <- covariate_data %>%
   mutate(Spinal = as.factor(ifelse(rownames(covariate_data) %in% spinal_patients, "Spinal", "not.Spinal")),
          PosteriorFossa = as.factor(ifelse(rownames(covariate_data) %in% posteriorFossa_patients, "PosteriorFossa", "not.PosteriorFossa")),
          Diencephalon = as.factor(ifelse(rownames(covariate_data) %in% diencephalon_patients, "Diencephalon", "not.Diencephalon")),
-         Cerebral = as.factor(ifelse(rownames(covariate_data) %in% cerebralHemisphere_patients, "CerebralHemisphere", "not.CerebralHemisphere")))
+         Cerebral = as.factor(ifelse(rownames(covariate_data) %in% cerebralHemisphere_patients, "CerebralHemisphere", "not.CerebralHemisphere")),
+         Supratentorial = as.factor(ifelse(rownames(covariate_data) %in% supratentorial_patient, "Supratentorial", "not.Supratentorial")))
 
 # Make all DDS objects
 dds_sp <- DESeqDataSetFromMatrix(countData = pa_counts,
@@ -217,15 +333,23 @@ dds_ch <- DESeqDataSetFromMatrix(countData = pa_counts,
                                  design = ~ Cerebral)
 dds_ch <- DESeq(dds_ch)
 
-save(dds_ch, dds_d, dds_pf, dds_sp, file = paste0(wd, "PA/PA_Data/DESeqBulkCohort_02.04.2022.RData"))
+dds_s <- DESeqDataSetFromMatrix(countData = pa_counts,
+                                 colData = covariate_data,
+                                 design = ~ Supratentorial)
+dds_s <- DESeq(dds_s)
 
-cnsLocation <- c("Cerebral", "Diencephalon", "PosteriorFossa", "Spinal")
+save(dds_ch, dds_d, dds_pf, dds_sp, dds_s, file = paste0(wd, "PA/PA_Data/DESeqBulkCohort_04.04.2022.RData"))
+# load("PA/PA_Data/DESeqBulkCohort_04.04.2022.RData")
+
+cnsLocation <- c("Cerebral", "Diencephalon", "PosteriorFossa", "Supratentorial", "Spinal")
 contrasts <- list(Cerebral = c("Cerebral", "CerebralHemisphere", "not.CerebralHemisphere"),
                   Diencephalon = c("Diencephalon", "Diencephalon", "not.Diencephalon"),
                   PosteriorFossa = c("PosteriorFossa", "PosteriorFossa", "not.PosteriorFossa"),
+                  Supratentorial = c("Supratentorial", "Supratentorial", "not.Supratentorial"),
                   Spinal = c("Spinal", "Spinal", "not.Spinal"))
-dds_objects <- objects()[grep("dds_", objects())]
+dds_objects <- c("dds_d", "dds_pf", "dds_s", "dds_sp")
 for (i in 1:length(dds_objects)) {
+# for (i in 1:1) {
   # initialize the location and datasets
   dds_loc <- get(dds_objects[i])
   temp <- as.character(dds_loc@design) %>% strsplit(split = "~") %>% sapply(getElement, 1)
@@ -263,32 +387,32 @@ for (i in 1:length(dds_objects)) {
             font.size = 8,
             title = paste0("Pathways under-enriched in ", location, " tumors"))
   OE_GO <- enrichGO(gene = OEgenes,
-           universe = as.character(res.tab$gene_id),
-           OrgDb = org.Hs.eg.db,
-           keyType = 'ENSEMBL',
-           ont = "BP",
-           pAdjustMethod = "BH",
-           qvalueCutoff = 0.05,
-           readable = TRUE) %>%
+                    universe = as.character(res.tab$gene_id),
+                    OrgDb = org.Hs.eg.db,
+                    keyType = 'ENSEMBL',
+                    ont = "BP",
+                    pAdjustMethod = "BH",
+                    qvalueCutoff = 0.05,
+                    readable = TRUE) %>%
     enrichplot::pairwise_termsim() %>%
     dotplot(x = "GeneRatio",
             showCategory = 20,
             font.size = 8,
             title = paste0("Pathways over-enriched in ", location, " tumors"))
 
-  pdf(paste0(fwd, "Bulk.GOenrichmentPlot.", location, "_02.04.2022.pdf"))
+  pdf(paste0(fwd, "Bulk.GOenrichmentPlot.", location, "_04.04.2022.pdf"))
   par(mfrow = c(1, 2))
   print(UE_GO)
   print(OE_GO)
   dev.off()
-  
+
   gProf.genes_entrz <- filter(res.tab, padj < 0.05 & log2FoldChange > 0) %>% filter(gene_biotype == "protein_coding") %>% arrange(-log2FoldChange) %>% pull(gene_id)
   gProf.genes_symbol <- filter(res.tab, padj < 0.05 & log2FoldChange > 0) %>% filter(gene_biotype == "protein_coding") %>% arrange(-log2FoldChange) %>% pull(rowname)
   write(x = gProf.genes_entrz,
-        file = paste0(wd, "PA/PA_Data/gProfiler_entrz.", location, "_02.04.2022.txt"),
+        file = paste0(wd, "PA/PA_Data/gProfiler_entrz.", location, "_04.04.2022.txt"),
         sep = "\t")
   write(x = gProf.genes_symbol,
-        file = paste0(wd, "PA/PA_Data/gProfiler_symbol.", location, "_02.04.2022.txt"),
+        file = paste0(wd, "PA/PA_Data/gProfiler_symbol.", location, "_04.04.2022.txt"),
         sep = "\t")
 }
 
@@ -422,8 +546,7 @@ sample_order <- deconv_res %>% arrange(-Tumor) %>% rownames()
 celltype_colors <- c("#F8766D", "seagreen3", "steelblue2", "#CF78FF")
 names(celltype_colors) <- c("Tumor", "Microglia", "T.cell", "Macrophage")
 deconv_all <- deconv_res %>%
-  mutate(Sample = as.character(rownames(deconv_res))) 
-%>%
+  mutate(Sample = as.character(rownames(deconv_res))) %>%
   gather(key = Cluster, value = Proportion, -Sample) %>%
   mutate(Cluster = factor(Cluster, levels = c("Macrophage", "T.cell", "Microglia", "Tumor")),
          Sample = factor(Sample, levels = sample_order))
@@ -501,50 +624,12 @@ ggplot(data = deconv_byLocation[deconv_byLocation$Cluster == "Tumor",],
 # ggsave(filename = paste0(fwd, "Tumor_deconv.png"), plot = last_plot(),
 #        width = 10, height = 7)
 
-########## CIBERSORTx ##########
-# write.csv(pa_counts, file = paste0(wd, "PA/Analysis/Deconvolution/CIBERSORTx/Bulk_PA_forDeconv.csv"))
-
-PA_cibersortx_LM22 <- read.csv("PA/Analysis/Deconvolution/CIBERSORTx/PA_cibersortx_LM22.csv")
-PA_lm22 <- PA_cibersortx_LM22[,1:23] %>%
-  column_to_rownames(var = "Mixture") %>%
-  dplyr::select(!Dendritic.cells.resting) %>%
-  as.matrix() %>% t()
-covariate_lm22 <- covariate_data[intersect(rownames(covariate_data), colnames(PA_lm22)),]
-PA_lm22 <- PA_lm22[,intersect(rownames(covariate_data), colnames(PA_lm22))]
 
 
-pheatmap(PA_lm22,
-        show_heatmap_legend = FALSE,
-        column_dend_height = unit(4, "cm"),
-        top_annotation = HeatmapAnnotation(Age = covariate_data$Age,
-                                           Sex = covariate_data$Sex,
-                                           Location = covariate_data$Location,
-                                           col = col_annotations, 
-                                           show_legend = TRUE),
-        show_column_names = FALSE,
-        show_row_dend = FALSE)
-pheatmap(mat = PA_lm22,
-         annotation_col = covariate_data %>% dplyr::select(Location, Sex),
-         annotation_colors = col_annotations,
-         show_colnames = FALSE)
 
-lm22_ht <- Heatmap(PA_lm22,
-                           clustering_distance_columns = "kendall",
-                           clustering_distance_rows = "manhattan",
-                           top_annotation = HeatmapAnnotation(Location = covariate_data$Location,
-                                                              col = col_annotations, 
-                                                              show_legend = TRUE),
-                           show_row_names = TRUE,
-                           show_column_names = FALSE,
-                           show_row_dend = TRUE,
-                           heatmap_legend_param = list(
-                             title = "Cell type composition (%)",
-                             direction = "horizontal",
-                             at = c(0, 1.5),
-                             border = "black",
-                             legend_width = unit(3, "cm"),
-                             title_position = "topcenter"))
-
-pdf(paste0(fwd, "cibersort_clusters.pdf"), width = 9, height = 8)
-draw(lm22_ht, heatmap_legend_side = "bottom")
-dev.off()
+patient_counts2 <- read.table(file = "Data/PMC/RNA_jacob/PMABM000CDC_PMCRZ411JKX_RNA-Seq.gene_id.exon.counts.txt", header = TRUE)
+patient_counts2 <- patient_counts2 %>%
+  select(GeneName, Counts)
+patient_counts2$Counts <- as.numeric(patient_counts2$Counts)
+# there are multiple rows to each gene name. add up counts so that there is one row per gene
+patient_counts2 <- aggregate(Counts ~ GeneName, patient_counts2, sum)
