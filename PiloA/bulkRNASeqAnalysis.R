@@ -113,6 +113,10 @@ for (sample in colnames(count_data)) {
   colnames(count_data)[colnames(count_data) == sample] <- pmcid
 }
 count_data <- count_data[, intersect(colnames(count_data), colnames(pa_counts))]
+add_these_samples <- setdiff(colnames(pa_counts), colnames(count_data))
+count_data <- cbind(count_data, pa_counts[, add_these_samples])
+pa_counts <- count_data
+# using Lennart's data + the 9 new samples from BioBank --> do this until resolved previous problems
 
 match <- c()
 mismatch <- c()
@@ -196,23 +200,25 @@ vsd <- vst(dds, blind = FALSE)
 #      dds,
 #      vsd,
 #      file = paste0(wd, "PA/PA_Data/CohortBulkRNAseq_04.04.2022.RData"))
-load("PA/PA_Data/CohortBulkRNAseq_04.04.2022.RData")
+# load("PA/PA_Data/CohortBulkRNAseq_04.04.2022.RData")
 # Select the most variably expressed genes -> these are non-x/y genes
 ### UMAP ###
 library(umap)
 library(ggforce)
 library(DESeq2)
+library(gridExtra)
 numGenes <- 1200
 seed <- 613
 
 p <- list()
 i = 1
-#for (numGenes in seq(from = 1000, to = 2000, by = 100)) {
+for (numGenes in seq(from = 400, to = 1500, by = 100)) {
 #for (seed in sample.int(1000, 12)) {
-for (seed in c(613, 418, 790, 19)) {
-  numGenes = 1200
-  alpha = 0.7
+#for (seed in c(613, 418, 790, 19)) {
+  #numGenes = 420
+  alpha = 0.4
   gamma = 1
+  seed = 613
   pca <- prcomp(t(assay(vsd)[varFeatures[1:numGenes], ]))
   #umap_res <- umap(pca$x, alpha=0.4, gamma=1)
   set.seed(seed); umap_res <- umap(pca$x, alpha = alpha, gamma = gamma)
@@ -265,9 +271,9 @@ bulkUmapPlot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
         axis.text = element_blank(),
         legend.position = "right")
 
-pdf(paste0(fwd, "BulkCohortUMAP_05.04.2022.pdf"), width = 7.75, height = 6.5)
-print(bulkUmapPlot)
-dev.off()
+# pdf(paste0(fwd, "BulkCohortUMAP_05.04.2022.pdf"), width = 7.75, height = 6.5)
+# print(bulkUmapPlot)
+# dev.off()
 
 ### Unsupervised clustering ###
 library(ComplexHeatmap)
@@ -275,11 +281,11 @@ library(ComplexHeatmap)
 varFeatures_coding <- varFeatures[varFeatures %in% protein_genes]
 
 # calculate inter-patient correlation based on protein-coding gene expression
-# corr_res <- cor(dataScale[varFeatures_coding[1:262],], method = "pearson")
-Heatmap(assay(vsd)[varFeatures[1:numGenes], ],
+corr_res <- cor(dataScale[varFeatures_coding[1:262],], method = "pearson")
+Heatmap(corr_res,
         show_heatmap_legend = TRUE,
-        clustering_distance_rows = "euclidean",
-        clustering_distance_columns = "euclidean",
+        clustering_distance_rows = "pearson",
+        clustering_distance_columns = "pearson",
         top_annotation = HeatmapAnnotation(Sex = covariate_data$Sex,
                                            LocationSpecific = covariate_data$LocationSpecific,
                                            col = col_annotations, 
@@ -287,9 +293,9 @@ Heatmap(assay(vsd)[varFeatures[1:numGenes], ],
         show_row_names = FALSE,
         show_column_names = FALSE,
         show_row_dend = FALSE)
-pdf(paste0(fwd, "heatmap.pdf"))
-print(heatmap)
-dev.off()
+# pdf(paste0(fwd, "heatmap.pdf"))
+# print(heatmap)
+# dev.off()
 
 ########## Functional enrichment analysis ##########
 library(fgsea)
@@ -348,10 +354,11 @@ contrasts <- list(Cerebral = c("Cerebral", "CerebralHemisphere", "not.CerebralHe
                   Supratentorial = c("Supratentorial", "Supratentorial", "not.Supratentorial"),
                   Spinal = c("Spinal", "Spinal", "not.Spinal"))
 dds_objects <- c("dds_d", "dds_pf", "dds_s", "dds_sp")
-for (i in 1:length(dds_objects)) {
-# for (i in 1:1) {
+#for (i in 1:length(dds_objects)) {
+for (i in 1:1) {
   # initialize the location and datasets
-  dds_loc <- get(dds_objects[i])
+  #dds_loc <- get(dds_objects[i])
+  dds_loc <- dds_s
   temp <- as.character(dds_loc@design) %>% strsplit(split = "~") %>% sapply(getElement, 1)
   location <- temp[2]
   contrast <- contrasts[[location]]
