@@ -40,6 +40,8 @@ patient_info <- patient_info %>%
                                    ifelse(tissue_location %in% pf_loc, "Posterior fossa", "Spinal")))
 
 # make Seurat objects for each sample
+library(Seurat)
+library(SingleCellExperiment)
 for (patient in patient_ids) {
   library <-  patient_dict$library_ids[patient_dict$patient_ids==patient]
   object <- readRDS(paste0(wd, "Data/ALS_2022/SCPCP000002/", patient, "/", library, "_filtered.rds"))
@@ -65,49 +67,84 @@ combined <- merge(get(paste0(patient_ids[1], "_sce")),
                   project = "ALS_PiloAstro")
 rm(list = paste0(patient_ids, "_sce"))
 
+pf.sample <- patient_info$scpca_sample_id[patient_info$updated_location == "Posterior fossa"]
+st.sample <- patient_info$scpca_sample_id[patient_info$updated_location == "Supratentorial"]
+spine.sample <- patient_info$scpca_sample_id[patient_info$updated_location == "Spinal"]
+
+meta.data.keep <- cbind(combined@meta.data)
+meta.data.keep <- meta.data.keep %>% 
+  as.data.frame() %>%
+  mutate(updated_location = ifelse(meta.data.keep$orig.ident %in% pf.sample, "Posterior fossa",
+                                   ifelse(meta.data.keep$orig.ident %in% st.sample, "Supratentorial", 
+                                          ifelse(meta.data.keep$orig.ident %in% spine.sample, "Spinal", ""))))
+
+combined <- AddMetaData(combined, meta.data.keep)
+
 ########## Quality Control ########## 
 library(scater)
+# change this to the object of interest
+seurat.object = combined
 
-sce <- as.SingleCellExperiment(x = combined)
-sce@metadata <- combined@meta.data
+sce <- as.SingleCellExperiment(x = seurat.object)
+sce@colData$nCount_RNA <- NULL
+sce@colData$nFeature_RNA <- NULL
 
-mito.genes <- grep("^MT-", rownames(sce))
+# some quality results are in the seurat object metadata, but want to calculate on our own
+mito.genes <- grep("^MT-", rownames(sce), value = TRUE) # 37 mitochondrial genes
 sce$percent.mito <- (Matrix::colSums(counts(sce)[mito.genes, ])*100)/Matrix::colSums(counts(sce)) 
-sce$nGene <- apply(counts(sce),  2,  function(x) length(x[x > 0])) # number of expressed genes
-sce$nUMI <- apply(counts(sce),  2,  sum) # total UMI counts (library size)
+sce$nGene <- apply(counts(sce), 2, function(x) length(x[x > 0])) # number of expressed genes
+sce$nUMI <- apply(counts(sce), 2, sum) # total UMI counts (library size)
 sce$staticNr <- 1
 dim(colData(sce))
 colnames(colData(sce))
 
-sce$nUMI.outlier.low <- isOutlier(sce$nUMI, nmads=3, type="lower", log=TRUE)
-sum(sce$nUMI.outlier.low )
+summary(sce$nUMI)
+ggplot(mapping = aes(x = sce$nUMI)) + 
+  geom_density(fill = "lightblue") +
+  geom_vline(xintercept = 750, color = "red") +
+  labs(x = "Counts per cell") +
+  xlim(0, 30000)
+sum(sce$nUMI <= 1000)
 
-sce$nGene.outlier.low <- isOutlier(sce$nGene, nmads=3, type="lower", log=TRUE)
-sum(sce$nGene.outlier.low)
+summary(sce$nGene)
+ggplot(mapping = aes(x = sce$nGene)) + 
+  geom_density(fill = "lightblue") +
+  geom_vline(xintercept = 500, color = "red") +
+  labs(x = "Number of genes expressed")
+sum(sce$nGene <= 500)
 
-sce$mito.outlier.high <- isOutlier(sce$percent.mito, nmads=3, type="higher", log=TRUE)
-sum(sce$mito.outlier.high)
+ggplot(mapping = aes(x = sce$percent.mito)) +
+  geom_density(fill = "lightblue") + 
+  labs(x = "Mitchondrial fraction") +
+  geom_vline(xintercept = 20, color = "red") +
+  theme_classic()
 
-# Filter cells and identify outliers
-metaData=as.data.frame(colData(sce))
-ggplot(metaData, aes(staticNr, nUMI)) + 
-  geom_violin(fill="gray80") + 
-  geom_jitter(height = 0, width = 0.3, aes(col=nUMI.outlier.low)) +
-  scale_color_manual(values=c("#00BFC4", "#F8766D"))+ggtitle("Total UMI counts per cell")
-ggplot(metaData, aes(staticNr, nGene)) + 
-  geom_violin(fill="gray80") + 
-  geom_jitter(height = 0, width = 0.3, aes(col=nGene.outlier.low)) +
-  scale_color_manual(values=c("#00BFC4", "#F8766D"))+ggtitle("Number of genes per cell")
-ggplot(metaData, aes(staticNr, percent.mito)) + 
-  geom_violin(fill="gray80") + 
-  geom_jitter(height = 0, width = 0.3, aes(col=mito.outlier.high)) +
-  scale_color_manual(values=c("#00BFC4", "#F8766D"))+ggtitle("% mito genes per cell")
+qc_df <- data.frame(barcode = Cells(sce),
+                    genes_exp = sce$nGene,
+                    total_counts = sce$nUMI,
+                    mito_fraction = sce$percent.mito)
+ggplot(qc_df, aes (x = total_counts,
+                   y = genes_exp, 
+                   color = mito_fraction)) +
+  geom_point(alpha = 0.5) +
+  scale_color_viridis_c() + 
+  geom_vline(xintercept = 1000, color = "red") +
+  geom_hline(yintercept = 500, color = "red") +
+  labs(x = "Total Count",
+       y = "Number of Genes Expressed",
+       color = "Mitochondrial\nFraction") + 
+  theme_bw()
+
+filtered_samples <- qc_df %>%
+  dplyr::filter(total_counts >= 1000,
+                genes_exp >= 500,
+                mito_fraction <= 20)
 
 # Remove outliers (101 cells which had lowly expressed genes)
-sce_clean <- sce[,!(sce$nUMI.outlier.low | sce$nGene.outlier.low | sce$mito.outlier.high)]
-sce_clean@metadata <- sce_clean@metadata[Cells(sce_clean),]
+sce_clean <- sce[,rownames(filtered_samples)]
+sce_clean@colData <- sce_clean@colData[Cells(sce_clean),]
 
-save(sce, sce_clean, file = paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_31.03.2022.RData"))
+save(sce_clean, file = paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_11.04.2022.RData"))
 # load(paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_31.03.2022.RData"))
 
 ########## Make Seurat Object ##########
@@ -116,16 +153,12 @@ rownames(counts) <- rownames(sce_clean)
 colnames(counts) <- colnames(sce_clean)
 seuratObj <- CreateSeuratObject(counts = counts)
 
-meta.data.keep <- cbind(colData(sce_clean), sce_clean@metadata)
-
-pf.sample <- patient_info$scpca_sample_id[patient_info$updated_location == "Posterior fossa"]
-st.sample <- patient_info$scpca_sample_id[patient_info$updated_location == "Supratentorial"]
-
-meta.data.keep <- meta.data.keep %>% as.data.frame() %>%
-  mutate(updated_location = ifelse(meta.data.keep$orig.ident %in% pf.sample, "Posterior fossa",
-                                   ifelse(meta.data.keep$orig.ident %in% st.sample, "Supratentorial", "Spinal")))
-
-seuratObj <- AddMetaData(seuratObj, meta.data.keep)
+### Split Seurat Object by Location ###
+location.obj <- SplitObject(combined, split.by = "updated_location")
+pf.obj <- location.obj$`Posterior fossa`
+st.obj <- location.obj$Supratentorial
+spinal.obj <- location.obj$Spinal
+rm(location.obj)
 
 # Normalization and clustering
 seuratObj <- NormalizeData(seuratObj, verbose = F)

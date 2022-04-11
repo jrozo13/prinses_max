@@ -189,9 +189,9 @@ uMapPombo_patient <- DimPlot(seuratObj,
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
 
-pdf(paste0(fwd, "scUMAP.Pombo_patient.pdf"), width = 7, height = 6)
-print(uMapPombo_patient)
-dev.off()
+# pdf(paste0(fwd, "scUMAP.Pombo_patient.pdf"), width = 7, height = 6)
+# print(uMapPombo_patient)
+# dev.off()
 
 uMapPombo_annot <- DimPlot(seuratObj,
         pt.size = 1,
@@ -215,4 +215,4 @@ pdf(paste0(fwd, "scUMAP.Pombo_annot.pdf"), width = 7.5, height = 6)
 print(uMapPombo_annot)
 dev.off()
 
-save(seuratObj, file = paste0(wd, "PA/PA_Data/Pombo.SeuratObj_30.03.2022.RData"))
+# save(seuratObj, file = paste0(wd, "PA/PA_Data/Pombo.SeuratObj_30.03.2022.RData"))

@@ -411,7 +411,10 @@ immune.obj <- ScaleData(immune.obj, verbose = F)
 immune.obj <- RunPCA(immune.obj, features = VariableFeatures(immune.obj))
 dims.use <- 30
 immune.obj <- RunUMAP(immune.obj, dims = 1:dims.use, min.dist = 0.5, verbose = F)
-DimPlot(immune.obj, group.by = "orig.ident")
+DimPlot(immune.obj, group.by = "orig.ident", reduction = "umapHarmony")
+immune.obj <- FindNeighbors(immune.obj)
+immune.obj <- FindClusters(immune.obj, group.singletons = FALSE, resolution = 0.5)
+DimPlot(immune.obj, reduction = "umapHarmony")
 
 library(harmony)
 theta.use <- 1
@@ -461,13 +464,33 @@ immune.obj_sce <- as.SingleCellExperiment(immune.obj)
 immune.cell_predictions <- SingleR(test = immune.obj_sce,
                                    ref = ref.pombo,
                                    labels = ref.pombo$cluster)
-save(immune.cell_predictions, file = paste0(wd, "PA/PA_Data/SingleRAnnotation_Taylor.RData"))
 
-immune.obj <- AddMetaData(immune.obj, immune.cell_predictions$labels, col.name = "SingleR.Pombo")
+immune.cluster_predictions <- SingleR(test = immune.obj_sce,
+                                   ref = ref.pombo,
+                                   clusters = immune.obj_sce$seurat_clusters,
+                                   labels = ref.pombo$cluster)
+
+save(immune.cell_predictions, immune.cluster_predictions, file = paste0(wd, "PA/PA_Data/SingleRAnnotation_Taylor.RData"))
+
+immune.obj <- AddMetaData(immune.obj, immune.cell_predictions$labels, col.name = "SingleR.Pombo_Cell")
+
+
+singleR_clusterpred <- data.frame(SeuratCluster = immune.obj$seurat_clusters %>% levels(),
+                                  PomboCellType = immune.cluster_predictions$labels)
+
+immuneCell_clusterPred <- data.frame(SeuratCluster = immune.obj$seurat_clusters) %>% 
+  rownames_to_column(var = "Cell")
+immuneCell_clusterPred <- merge(x = immuneCell_clusterPred, 
+                                y = singleR_clusterpred, 
+                                by.x = "SeuratCluster", 
+                                by.y = "SeuratCluster") 
+immuneCell_clusterPred <- immuneCell_clusterPred %>% arrange(Cell)
+(immuneCell_clusterPred$SeuratCluster == immune.obj$seurat_clusters) %>% table()
+immune.obj <- AddMetaData(immune.obj, immuneCell_clusterPred$PomboCellType, col.name = "SingleR.Pombo_Cluster")
 
 uMapPA_pomboAnnot <- DimPlot(immune.obj,
         reduction = "umapHarmony",
-        group.by = "SingleR.Pombo",
+        group.by = "SingleR.Pombo_Cluster",
         pt.size = 1) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
@@ -487,7 +510,7 @@ pdf(paste0(fwd, "scUMAP.TaylorPA_pomboAnnot.pdf"), width = 7.5, height = 6)
 print(uMapPA_pomboAnnot)
 dev.off()
 
-save(immune.obj, file = paste0(wd, "PA/PA_Data/TaylorImmune.SeuratObj_30.03.2022.RData"))
+save(immune.obj, file = paste0(wd, "PA/PA_Data/TaylorImmune.SeuratObj_06.04.2022.RData"))
 
 iummne.markers <- FindAllMarkers(immune.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
 top5_immune <- leuk.markers %>%
