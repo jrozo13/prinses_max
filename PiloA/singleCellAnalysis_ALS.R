@@ -101,72 +101,83 @@ colnames(colData(sce))
 summary(sce$nUMI)
 ggplot(mapping = aes(x = sce$nUMI)) + 
   geom_density(fill = "lightblue") +
-  geom_vline(xintercept = 750, color = "red") +
+  geom_vline(xintercept = 1000, color = "red") +
   labs(x = "Counts per cell") +
   xlim(0, 30000)
-sum(sce$nUMI <= 1000)
+sum(sce$nUMI < 1000)
 
 summary(sce$nGene)
 ggplot(mapping = aes(x = sce$nGene)) + 
   geom_density(fill = "lightblue") +
   geom_vline(xintercept = 500, color = "red") +
   labs(x = "Number of genes expressed")
-sum(sce$nGene <= 500)
+sum(sce$nGene < 500)
 
 ggplot(mapping = aes(x = sce$percent.mito)) +
   geom_density(fill = "lightblue") + 
   labs(x = "Mitchondrial fraction") +
-  geom_vline(xintercept = 20, color = "red") +
-  theme_classic()
+  geom_vline(xintercept = 25, color = "red")
+
+# Set Thresholds for qualtiy control
+genes_exp.check = 500
+total_counts.check = 1000
+mito_fraction.check = 25
 
 qc_df <- data.frame(barcode = Cells(sce),
                     genes_exp = sce$nGene,
                     total_counts = sce$nUMI,
                     mito_fraction = sce$percent.mito)
+qc_df <- qc_df %>% 
+  mutate(filtered = 
+           ifelse(genes_exp >= genes_exp.check & 
+                    total_counts >= total_counts.check & 
+                    mito_fraction <= mito_fraction.check, "Passed", "Failed"))
+
 ggplot(qc_df, aes (x = total_counts,
                    y = genes_exp, 
-                   color = mito_fraction)) +
+                   color = filtered)) +
   geom_point(alpha = 0.5) +
-  scale_color_viridis_c() + 
-  geom_vline(xintercept = 1000, color = "red") +
-  geom_hline(yintercept = 500, color = "red") +
+  geom_vline(xintercept = total_counts.check, color = "red") +
+  geom_hline(yintercept = genes_exp.check, color = "red") +
   labs(x = "Total Count",
        y = "Number of Genes Expressed",
        color = "Mitochondrial\nFraction") + 
   theme_bw()
 
 filtered_samples <- qc_df %>%
-  dplyr::filter(total_counts >= 1000,
-                genes_exp >= 500,
-                mito_fraction <= 20)
+  dplyr::filter(total_counts >= total_counts.check,
+                genes_exp >= genes_exp.check,
+                mito_fraction <= mito_fraction.check)
 
 # Remove outliers (101 cells which had lowly expressed genes)
 sce_clean <- sce[,rownames(filtered_samples)]
 sce_clean@colData <- sce_clean@colData[Cells(sce_clean),]
 
-save(sce_clean, file = paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_11.04.2022.RData"))
-# load(paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_31.03.2022.RData"))
+# save(sce, sce_clean, file = paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
+load(paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
 
 ########## Make Seurat Object ##########
 counts <- counts(sce_clean)
 rownames(counts) <- rownames(sce_clean)
 colnames(counts) <- colnames(sce_clean)
 seuratObj <- CreateSeuratObject(counts = counts)
+seuratObj$updated_location <- sce_clean$updated_location
 
 ### Split Seurat Object by Location ###
-location.obj <- SplitObject(combined, split.by = "updated_location")
+location.obj <- SplitObject(seuratObj, split.by = "updated_location")
 pf.obj <- location.obj$`Posterior fossa`
 st.obj <- location.obj$Supratentorial
 spinal.obj <- location.obj$Spinal
 rm(location.obj)
 
+# save(pf.obj, st.obj, spinal.obj, file = paste0(wd, "PA/PA_Data/ALS.LocationSeuratObjs_25.04.2022.RData"))
+
 # Normalization and clustering
-seuratObj <- NormalizeData(seuratObj, verbose = F)
+seuratObj <- NormalizeData(pf.obj, verbose = F)
 seuratObj <- FindVariableFeatures(seuratObj, verbose = F)
 seuratObj <- ScaleData(seuratObj, verbose = F)
 seuratObj <- RunPCA(seuratObj, features = VariableFeatures(seuratObj))
 ElbowPlot(object = seuratObj, ndims = 50)
-DimHeatmap(seuratObj, dims = 25:30, cells = 5000, balanced = TRUE)
 # use 30 PCs
 
 dims.use <- 30
@@ -195,9 +206,9 @@ seuratObj <- RunTSNE(seuratObj,
                      reduction.key = "tsneHarmony")
 
 DimPlot(seuratObj,
-        pt.size = 1,
-        group.by = "updated_location",
-        reduction = "umapHarmony") +
+        pt.size = 0.5,
+        group.by = "orig.ident",
+        reduction = "tsneHarmony") +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   labs(title = "Pilocytic Astrocytoma",
@@ -219,13 +230,14 @@ seuratObj <- FindNeighbors(seuratObj,
 seuratObj <- FindClusters(seuratObj, resolution = 0.1, group.singletons = TRUE)
 DimPlot(seuratObj,
         pt.size = 1,
-        reduction = "umapHarmony") +
+        split.by = "orig.ident", 
+        reduction = "tsneHarmony") +
   xlab("UMAP1") + 
   ylab("UMAP2") +
-  labs(title = "Pilocytic Astrocytoma",
+  labs(title = "Posterior Fossa Pilocytic Astrocytoma",
        subtitle = "Alex's Lemonade Stand, 2022") +
   theme(panel.background = element_rect(colour = "black", size = 1),
-        plot.title = element_text(),
+        plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = 0.5),
         axis.line = element_blank(),
         axis.ticks = element_blank(),
