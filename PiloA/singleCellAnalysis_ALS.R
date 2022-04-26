@@ -160,55 +160,56 @@ load(paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
 counts <- counts(sce_clean)
 rownames(counts) <- rownames(sce_clean)
 colnames(counts) <- colnames(sce_clean)
-seuratObj <- CreateSeuratObject(counts = counts)
-seuratObj$updated_location <- sce_clean$updated_location
+allcell.obj <- CreateSeuratObject(counts = counts)
+allcell.obj$updated_location <- sce_clean$updated_location
 
 ### Split Seurat Object by Location ###
-location.obj <- SplitObject(seuratObj, split.by = "updated_location")
+location.obj <- SplitObject(allcell.obj, split.by = "updated_location")
 pf.obj <- location.obj$`Posterior fossa`
 st.obj <- location.obj$Supratentorial
 spinal.obj <- location.obj$Spinal
-rm(location.obj)
+rm(location.obj, allcell.obj)
 
 # save(pf.obj, st.obj, spinal.obj, file = paste0(wd, "PA/PA_Data/ALS.LocationSeuratObjs_25.04.2022.RData"))
 
 # Normalization and clustering
-seuratObj <- NormalizeData(pf.obj, verbose = F)
-seuratObj <- FindVariableFeatures(seuratObj, verbose = F)
-seuratObj <- ScaleData(seuratObj, verbose = F)
-seuratObj <- RunPCA(seuratObj, features = VariableFeatures(seuratObj))
-ElbowPlot(object = seuratObj, ndims = 50)
+load("PA/PA_Data/ALS.LocationSeuratObjs_25.04.2022.RData")
+library(Seurat)
+seuratObj <- merge(x = pf.obj, y = c(st.obj, spinal.obj))
+object.list <- SplitObject(seuratObj, split.by = "orig.ident")
+for (i in 1:length(object.list)) {
+  print(paste0("index: ", i, "; nCells: ", length(Cells(object.list[[i]]))))
+}
+object.list[11] <- NULL
+
+for (i in 1:length(object.list)) {
+  object.list[[i]] <- NormalizeData(object.list[[i]], verbose = FALSE)
+  object.list[[i]] <- FindVariableFeatures(object.list[[i]], nfeatures = 2000, verbose = FALSE)
+}
+
+# Find anchors
+anchors <- FindIntegrationAnchors(object.list = object.list, dims = 1:30)
+# Integrate data
+integrated <- IntegrateData(anchorset = anchors)
+
+# seuratObj <- NormalizeData(seuratObj, verbose = F)
+# seuratObj <- FindVariableFeatures(seuratObj, verbose = F)
+integrated <- ScaleData(integrated, verbose = F)
+integrated <- RunPCA(integrated, features = VariableFeatures(integrated))
+ElbowPlot(object = integrated, ndims = 50)
 # use 30 PCs
 
-dims.use <- 30
-seuratObj <- RunUMAP(seuratObj, dims = 1:dims.use, verbose=F)
-DimPlot(object = seuratObj, group.by = "orig.ident")
-# see clear separation by patient --> harmony correct data
+dims.use <- 20
+integrated <- RunUMAP(integrated, dims = 1:dims.use, verbose=F)
+integrated <- RunTSNE(integrated, dims = 1:dims.use, verbose=F)
+DimPlot(object = integrated, group.by = "orig.ident", reduction = "umap")
+DimPlot(object = integrated, group.by = "orig.ident", reduction = "tsne")
+# We do not see separation by patient or batches
 
-# Harmony correct for sample because they clustered by sample, not cell type
-library(harmony)
-theta.use<-1
-seuratObj <- RunHarmony(seuratObj, 
-                        group.by.vars = "orig.ident",
-                        theta = theta.use,  
-                        plot_convergence = TRUE)
-
-#### Run UMAP on the harmony-corrected PCA
-seuratObj <- RunUMAP(seuratObj,
-                     reduction = "harmony", 
-                     dims = 1:dims.use, 
-                     reduction.name = "umapHarmony",
-                     reduction.key = "umapHarmony")
-seuratObj <- RunTSNE(seuratObj,
-                     reduction = "harmony",
-                     dims = 1:dims.use,
-                     reduction.name = "tsneHarmony",
-                     reduction.key = "tsneHarmony")
-
-DimPlot(seuratObj,
+DimPlot(integrated,
         pt.size = 0.5,
         group.by = "orig.ident",
-        reduction = "tsneHarmony") +
+        reduction = "umap") +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   labs(title = "Pilocytic Astrocytoma",
@@ -224,14 +225,14 @@ DimPlot(seuratObj,
         axis.title.y = element_text(hjust = 0))
 
 ########## Clustering ##########
-seuratObj <- FindNeighbors(seuratObj, 
+integrated <- FindNeighbors(integrated, 
                            dims = 1:dims.use,
                            annoy.metric = "euclidean")
-seuratObj <- FindClusters(seuratObj, resolution = 0.1, group.singletons = TRUE)
-DimPlot(seuratObj,
+integrated <- FindClusters(integrated, resolution = 1, group.singletons = TRUE)
+DimPlot(integrated,
         pt.size = 1,
-        split.by = "orig.ident", 
-        reduction = "tsneHarmony") +
+        #split.by = "orig.ident", 
+        reduction = "umap") +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   labs(title = "Posterior Fossa Pilocytic Astrocytoma",
@@ -246,3 +247,27 @@ DimPlot(seuratObj,
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
 
+markers <- FindAllMarkers(integrated, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top5 <- markers %>%
+  group_by(cluster) %>%
+  top_n(n = 5, wt = avg_log2FC)
+DoHeatmap(integrated, features = top5$gene) + NoLegend()
+
+library(SingleR)
+library(celldex)
+ref.data <- celldex::HumanPrimaryCellAtlasData(ensembl = FALSE)
+# ensembl == TRUE: will use the ENSEMBL IDs
+cluster_predictions <- SingleR(as.SingleCellExperiment(integrated), 
+                               ref = ref.data,
+                               labels = ref.data$label.main,
+                               clusters = integrated$integrated_snn_res.1)
+cluster_idents <- data.frame(cluster_predictions@rownames, cluster_predictions@listData$labels)
+cell_idents <- merge(x = integrated@meta.data %>% rownames_to_column() %>%  select(rowname, integrated_snn_res.1), 
+                     y = cluster_idents,
+                     by.x = "integrated_snn_res.1",
+                     by.y = "cluster_predictions.rownames")%>%
+  column_to_rownames(var = "rowname")
+cell_idents <- cell_idents[rownames(integrated@meta.data),]
+integrated <- AddMetaData(integrated, metadata = cell_idents$cluster_predictions.listData.labels, col.name = "SingleR_ClustPred")
+DimPlot(integrated, reduction = "umap", group.by = "SingleR_ClustPred")
+DimPlot(integrated, reduction = "umap", group.by = "integrated_snn_res.1")
