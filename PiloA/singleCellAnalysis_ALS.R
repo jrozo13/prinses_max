@@ -154,7 +154,7 @@ sce_clean <- sce[,rownames(filtered_samples)]
 sce_clean@colData <- sce_clean@colData[Cells(sce_clean),]
 
 # save(sce, sce_clean, file = paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
-load(paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
+# load(paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
 
 ########## Make Seurat Object ##########
 counts <- counts(sce_clean)
@@ -271,3 +271,78 @@ cell_idents <- cell_idents[rownames(integrated@meta.data),]
 integrated <- AddMetaData(integrated, metadata = cell_idents$cluster_predictions.listData.labels, col.name = "SingleR_ClustPred")
 DimPlot(integrated, reduction = "umap", group.by = "SingleR_ClustPred")
 DimPlot(integrated, reduction = "umap", group.by = "integrated_snn_res.1")
+DimPlot(integrated, reduction = "umap", group.by = "SingleR_ClustPred", split.by = "updated_location")
+
+########## Annotation of immune cells ##########
+load("PA/PA_Data/Pombo.SeuratObj_30.03.2022.RData")
+assign("ref.pombo", seuratObj); rm(seuratObj)
+library(SingleR)
+library(SingleCellExperiment)
+library(Seurat)
+
+Idents(integrated) <- "SingleR_ClustPred"
+immune.obj <- subset(x = integrated, idents = c("B_cell", "Monocyte", "Macrophage", "NK_cell", "Pre-B_cell_CD34-", "T_cells"))
+DefaultAssay(immune.obj) <- "integrated"
+immune.obj <- ScaleData(immune.obj, verbose = F)
+immune.obj <- RunPCA(immune.obj, features = VariableFeatures(immune.obj))
+dims.use <- 30
+immune.obj <- RunUMAP(immune.obj, dims = 1:dims.use, min.dist = 0.5, verbose = F)
+DimPlot(immune.obj, group.by = "updated_location", reduction = "umap")
+DimPlot(immune.obj, group.by = "orig.ident", reduction = "umap")
+
+immune.obj <- FindNeighbors(immune.obj)
+immune.obj <- FindClusters(immune.obj, group.singletons = TRUE, resolution = 1)
+DimPlot(immune.obj, reduction = "umap")
+
+ref.pombo <- as.SingleCellExperiment(ref.pombo)
+
+immune.cluster_predictions <- SingleR(as.SingleCellExperiment(immune.obj), 
+                               ref = ref.pombo,
+                               labels = ref.pombo$cluster,
+                               clusters = immune.obj$seurat_clusters)
+immune.cluster_idents <- data.frame(immune.cluster_predictions@rownames, immune.cluster_predictions@listData$labels)
+immune.cell_idents <- merge(x = immune.obj@meta.data %>% rownames_to_column() %>% select(rowname, seurat_clusters), 
+                            y = immune.cluster_idents,
+                            by.x = "seurat_clusters",
+                            by.y = "immune.cluster_predictions.rownames") %>%
+  column_to_rownames(var = "rowname")
+immune.cell_idents <- immune.cell_idents[rownames(immune.obj@meta.data),]
+immune.obj <- AddMetaData(immune.obj, metadata = immune.cell_idents$immune.cluster_predictions.listData.labels, col.name = "SingleR.Pombo")
+DimPlot(immune.obj, reduction = "umap", group.by = "SingleR.Pombo", split.by = "updated_location")
+
+DimPlot(immune.obj,
+        reduction = "umap",
+        group.by = "SingleR.Pombo",
+        pt.size = 1) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma: immune microenvironment",
+       subtitle = "SingleR annotation: Pombo-Antunes, 2021") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+DimPlot(immune.obj,
+        reduction = "umap",
+        group.by = "SingleR_ClustPred",
+        pt.size = 1) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma: immune microenvironment",
+       subtitle = "SingleR annotation: Pombo-Antunes, 2021") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+
+# save(integrated, immune.obj, file = paste0(wd, "PA/PA_Data/ALS.SeuratObjects_26.04.2022.RData"))
