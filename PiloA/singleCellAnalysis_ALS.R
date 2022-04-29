@@ -129,7 +129,7 @@ ggplot(mapping = aes(x = sce$percent.mito)) +
 # Set Thresholds for qualtiy control
 genes_exp.check = 300
 total_counts.check = 1000
-mito_fraction.check = 30
+mito_fraction.check = 25
 
 qc_df <- data.frame(barcode = Cells(sce),
                     genes_exp = sce$nGene,
@@ -181,6 +181,11 @@ rownames(counts) <- rownames(sce_clean)
 colnames(counts) <- colnames(sce_clean)
 allcell.obj <- CreateSeuratObject(counts = counts)
 allcell.obj$updated_location <- sce_clean$updated_location
+allcell.obj$nUMI <- sce_clean$nUMI
+allcell.obj$nGene <- sce_clean$nGene
+allcell.obj$percent.mito <- sce_clean$percent.mito
+allcell.obj$nCount_RNA <- NULL
+allcell.obj$nFeature_RNA <- NULL
 
 ##### Split Seurat Object by Location #####
 # location.obj <- SplitObject(allcell.obj, split.by = "updated_location")
@@ -204,33 +209,26 @@ for (i in 1:length(object.list)) {
 object.list[4] <- NULL
 
 for (i in 1:length(object.list)) {
-  object.list[[i]] <- NormalizeData(object.list[[i]], verbose = FALSE)
-  object.list[[i]] <- FindVariableFeatures(object.list[[i]], nfeatures = 2000, verbose = FALSE)
+  object.list[[i]] <- NormalizeData(object.list[[i]], verbose = F)
+  object.list[[i]] <- FindVariableFeatures(object.list[[i]], nfeatures = 4000, verbose = F)
 }
 
 # Find anchors
-anchors <- FindIntegrationAnchors(object.list = object.list, dims = 1:30)
+anchors <- FindIntegrationAnchors(object.list = object.list, dims = 1:30, verbose = F)
 # Integrate data
-integrated <- IntegrateData(anchorset = anchors)
+integrated <- IntegrateData(anchorset = anchors, verbose = F)
 
-# seuratObj <- NormalizeData(seuratObj, verbose = F)
-# seuratObj <- FindVariableFeatures(seuratObj, verbose = F)
 integrated <- ScaleData(integrated, verbose = F)
 integrated <- RunPCA(integrated, features = VariableFeatures(integrated))
 ElbowPlot(object = integrated, ndims = 50)
 # use 20 PCs
 
 dims.use <- 20
-integrated <- RunUMAP(integrated, dims = 1:dims.use, verbose=F)
-# integrated <- RunTSNE(integrated, dims = 1:dims.use, verbose=F)
-DimPlot(object = integrated, group.by = "orig.ident", reduction = "umap")
-# DimPlot(object = integrated, group.by = "orig.ident", reduction = "tsne")
-
+integrated <- RunUMAP(integrated, dims = 1:dims.use, verbose = F)
 assign(paste0("integrated_mito", mito_fraction.check), integrated)
-# We do not see separation by patient or batches
 
 DimPlot(integrated,
-        pt.size = 0.5,
+        pt.size = 0.75,
         group.by = "orig.ident",
         reduction = "umap") +
   xlab("UMAP1") + 
@@ -246,16 +244,23 @@ DimPlot(integrated,
         axis.title = element_text(size = 10),
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
+# We do not see separation by patient or batches
+FeaturePlot(integrated,
+            features = c("nUMI", "nGene", "percent.mito"))
+FeaturePlot(integrated,
+            features = c("PTPRC", "APOE", "APOD"))
+
+##### Plot difference in cells filtered out by mitochondrial read % #####
 filteredCells <- setdiff(Cells(integrated_mito30), Cells(integrated_mito20))
-DimPlot(integrated,
-        pt.size = 0.5, 
+DimPlot(integrated_mito30,
+        pt.size = 0.75, 
         cells.highlight = filteredCells, 
-        sizes.highlight = 0.2,
+        sizes.highlight = 0.1,
         reduction = "umap") +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   labs(title = "Pilocytic Astrocytoma",
-       subtitle = "Alex's Lemonade Stand, 2022\n Filtered cells at 30%") +
+       subtitle = "Alex's Lemonade Stand, 2022\n Filtered cells at 20% vs 30%") +
   theme(panel.background = element_rect(colour = "black", size = 1),
         plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = 0.5),
@@ -266,11 +271,15 @@ DimPlot(integrated,
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
 
+
 ########## Clustering ##########
 integrated <- FindNeighbors(integrated, 
                            dims = 1:dims.use,
                            annoy.metric = "euclidean")
-integrated <- FindClusters(integrated, resolution = 1, group.singletons = TRUE)
+integrated <- FindClusters(integrated, 
+                           resolution = 1, 
+                           group.singletons = TRUE,
+                           algorithm = 1)
 DimPlot(integrated,
         pt.size = 1,
         #split.by = "orig.ident", 
@@ -314,6 +323,8 @@ integrated <- AddMetaData(integrated, metadata = cell_idents$cluster_predictions
 DimPlot(integrated, reduction = "umap", group.by = "SingleR_ClustPred")
 DimPlot(integrated, reduction = "umap", group.by = "integrated_snn_res.1")
 DimPlot(integrated, reduction = "umap", group.by = "SingleR_ClustPred", split.by = "updated_location")
+
+save(integrated, file = paste0(wd, "PA/PA_Data/ALS.IntegratedObject_29.04.2022.RData"))
 
 ########## Annotation of immune cells ##########
 load("PA/PA_Data/Pombo.SeuratObj_30.03.2022.RData")
@@ -433,6 +444,14 @@ dev.off()
 
 # save(immune.obj, file = paste0(wd, "PA/PA_Data/ALS.ImmuneObject_28.04.2022.RData"))
 
+cell_annotations <- immune.obj@meta.data %>%
+  select("orig.ident", "SingleR.Pombo")
+cell_annotations$SingleR.Pombo <- str_replace(cell_annotations$SingleR.Pombo, pattern = "NK cells", replacement = "T/NK cells")
+cell_annotations <- table(cell_annotations$SingleR.Pombo, cell_annotations$orig.ident) %>% 
+  data.frame()
+colnames(cell_annotations) <- c("Cell", "Sample", "Count")
+ggplot(cell_annotations, aes(x = Sample, y = Count, fill = Cell)) + 
+  geom_bar(stat = "identity", position="fill")
 
 ########## Annotation of glima associated macrophages ##########
 library(SingleCellExperiment)
