@@ -1,5 +1,5 @@
 # Single-cell Pilocytic Astrocytoma analysis (Alex's Lemonade Stand)
-# Last updated: 29/03/2022
+# Last updated: 26/04/2022
 
 ########## Initialize ##########
 ## Install global packages ##
@@ -116,12 +116,20 @@ sum(sce$nGene < 500)
 ggplot(mapping = aes(x = sce$percent.mito)) +
   geom_density(fill = "lightblue") + 
   labs(x = "Mitchondrial fraction") +
+  geom_vline(xintercept = 20, color = "red")
+ggplot(mapping = aes(x = sce$percent.mito)) +
+  geom_density(fill = "lightblue") + 
+  labs(x = "Mitchondrial fraction") +
   geom_vline(xintercept = 25, color = "red")
+ggplot(mapping = aes(x = sce$percent.mito)) +
+  geom_density(fill = "lightblue") + 
+  labs(x = "Mitchondrial fraction") +
+  geom_vline(xintercept = 30, color = "red")
 
 # Set Thresholds for qualtiy control
-genes_exp.check = 500
+genes_exp.check = 300
 total_counts.check = 1000
-mito_fraction.check = 25
+mito_fraction.check = 30
 
 qc_df <- data.frame(barcode = Cells(sce),
                     genes_exp = sce$nGene,
@@ -141,7 +149,18 @@ ggplot(qc_df, aes (x = total_counts,
   geom_hline(yintercept = genes_exp.check, color = "red") +
   labs(x = "Total Count",
        y = "Number of Genes Expressed",
-       color = "Mitochondrial\nFraction") + 
+       color = paste0("Mitochondrial\nFraction: ", mito_fraction.check, "%")) + 
+  theme_bw()
+ggplot(qc_df, aes (x = total_counts,
+                   y = genes_exp, 
+                   color = mito_fraction)) +
+  geom_point(alpha = 0.5) +
+  scale_color_viridis_c() +
+  geom_vline(xintercept = total_counts.check, color = "red") +
+  geom_hline(yintercept = genes_exp.check, color = "red") +
+  labs(x = "Total Count",
+       y = "Number of Genes Expressed",
+       color = paste0("Mitochondrial\nFraction")) + 
   theme_bw()
 
 filtered_samples <- qc_df %>%
@@ -163,24 +182,26 @@ colnames(counts) <- colnames(sce_clean)
 allcell.obj <- CreateSeuratObject(counts = counts)
 allcell.obj$updated_location <- sce_clean$updated_location
 
-### Split Seurat Object by Location ###
-location.obj <- SplitObject(allcell.obj, split.by = "updated_location")
-pf.obj <- location.obj$`Posterior fossa`
-st.obj <- location.obj$Supratentorial
-spinal.obj <- location.obj$Spinal
-rm(location.obj, allcell.obj)
+##### Split Seurat Object by Location #####
+# location.obj <- SplitObject(allcell.obj, split.by = "updated_location")
+# pf.obj <- location.obj$`Posterior fossa`
+# st.obj <- location.obj$Supratentorial
+# spinal.obj <- location.obj$Spinal
+# rm(location.obj, allcell.obj)
 
 # save(pf.obj, st.obj, spinal.obj, file = paste0(wd, "PA/PA_Data/ALS.LocationSeuratObjs_25.04.2022.RData"))
 
 # Normalization and clustering
-load("PA/PA_Data/ALS.LocationSeuratObjs_25.04.2022.RData")
+# load("PA/PA_Data/ALS.LocationSeuratObjs_25.04.2022.RData")
 library(Seurat)
-seuratObj <- merge(x = pf.obj, y = c(st.obj, spinal.obj))
-object.list <- SplitObject(seuratObj, split.by = "orig.ident")
+# was splitting object by locaiton before --> not anymore
+# seuratObj <- merge(x = pf.obj, y = c(st.obj, spinal.obj))
+object.list <- SplitObject(allcell.obj, split.by = "orig.ident")
 for (i in 1:length(object.list)) {
   print(paste0("index: ", i, "; nCells: ", length(Cells(object.list[[i]]))))
 }
-object.list[11] <- NULL
+# remove samples with < 30 cells after filtering
+object.list[4] <- NULL
 
 for (i in 1:length(object.list)) {
   object.list[[i]] <- NormalizeData(object.list[[i]], verbose = FALSE)
@@ -197,13 +218,15 @@ integrated <- IntegrateData(anchorset = anchors)
 integrated <- ScaleData(integrated, verbose = F)
 integrated <- RunPCA(integrated, features = VariableFeatures(integrated))
 ElbowPlot(object = integrated, ndims = 50)
-# use 30 PCs
+# use 20 PCs
 
 dims.use <- 20
 integrated <- RunUMAP(integrated, dims = 1:dims.use, verbose=F)
-integrated <- RunTSNE(integrated, dims = 1:dims.use, verbose=F)
+# integrated <- RunTSNE(integrated, dims = 1:dims.use, verbose=F)
 DimPlot(object = integrated, group.by = "orig.ident", reduction = "umap")
-DimPlot(object = integrated, group.by = "orig.ident", reduction = "tsne")
+# DimPlot(object = integrated, group.by = "orig.ident", reduction = "tsne")
+
+assign(paste0("integrated_mito", mito_fraction.check), integrated)
 # We do not see separation by patient or batches
 
 DimPlot(integrated,
@@ -216,6 +239,25 @@ DimPlot(integrated,
        subtitle = "Alex's Lemonade Stand, 2022") +
   theme(panel.background = element_rect(colour = "black", size = 1),
         plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+filteredCells <- setdiff(Cells(integrated_mito30), Cells(integrated_mito20))
+DimPlot(integrated,
+        pt.size = 0.5, 
+        cells.highlight = filteredCells, 
+        sizes.highlight = 0.2,
+        reduction = "umap") +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma",
+       subtitle = "Alex's Lemonade Stand, 2022\n Filtered cells at 30%") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = 0.5),
         axis.line = element_blank(),
         axis.ticks = element_blank(),
@@ -281,7 +323,7 @@ library(SingleCellExperiment)
 library(Seurat)
 
 Idents(integrated) <- "SingleR_ClustPred"
-immune.obj <- subset(x = integrated, idents = c("B_cell", "Monocyte", "Macrophage", "NK_cell", "Pre-B_cell_CD34-", "T_cells"))
+immune.obj <- subset(x = integrated, idents = setdiff(integrated$SingleR_ClustPred %>% unique(), "Astrocyte"))
 DefaultAssay(immune.obj) <- "integrated"
 immune.obj <- ScaleData(immune.obj, verbose = F)
 immune.obj <- RunPCA(immune.obj, features = VariableFeatures(immune.obj))
@@ -290,15 +332,18 @@ immune.obj <- RunUMAP(immune.obj, dims = 1:dims.use, min.dist = 0.5, verbose = F
 DimPlot(immune.obj, group.by = "updated_location", reduction = "umap")
 DimPlot(immune.obj, group.by = "orig.ident", reduction = "umap")
 
+# Under-cluster cells and annotate using SingleR and Pombo annotations
 immune.obj <- FindNeighbors(immune.obj)
 immune.obj <- FindClusters(immune.obj, group.singletons = TRUE, resolution = 1)
-DimPlot(immune.obj, reduction = "umap")
 
 ref.pombo <- as.SingleCellExperiment(ref.pombo)
 
+# Update these parameters based on reference scSeq set
+ref.set = ref.pombo
+col.name = "SingleR.Pombo"
 immune.cluster_predictions <- SingleR(as.SingleCellExperiment(immune.obj), 
-                               ref = ref.pombo,
-                               labels = ref.pombo$cluster,
+                               ref = ref.set,
+                               labels = ref.set$cluster, # udpate this line based on reference set
                                clusters = immune.obj$seurat_clusters)
 immune.cluster_idents <- data.frame(immune.cluster_predictions@rownames, immune.cluster_predictions@listData$labels)
 immune.cell_idents <- merge(x = immune.obj@meta.data %>% rownames_to_column() %>% select(rowname, seurat_clusters), 
@@ -307,13 +352,13 @@ immune.cell_idents <- merge(x = immune.obj@meta.data %>% rownames_to_column() %>
                             by.y = "immune.cluster_predictions.rownames") %>%
   column_to_rownames(var = "rowname")
 immune.cell_idents <- immune.cell_idents[rownames(immune.obj@meta.data),]
-immune.obj <- AddMetaData(immune.obj, metadata = immune.cell_idents$immune.cluster_predictions.listData.labels, col.name = "SingleR.Pombo")
-DimPlot(immune.obj, reduction = "umap", group.by = "SingleR.Pombo", split.by = "updated_location")
+immune.obj <- AddMetaData(immune.obj, metadata = immune.cell_idents$immune.cluster_predictions.listData.labels, col.name = col.name)
+DimPlot(immune.obj, reduction = "umap", group.by = col.name, split.by = "updated_location")
 
-DimPlot(immune.obj,
-        reduction = "umap",
-        group.by = "SingleR.Pombo",
-        pt.size = 1) +
+als.umap_singleRpomboannot <- DimPlot(immune.obj,
+                                      reduction = "umap",
+                                      group.by = "SingleR.Pombo",
+                                      pt.size = 1) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   labs(title = "Pilocytic Astrocytoma: immune microenvironment",
@@ -327,14 +372,46 @@ DimPlot(immune.obj,
         axis.title = element_text(size = 10),
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
-DimPlot(immune.obj,
-        reduction = "umap",
-        group.by = "SingleR_ClustPred",
-        pt.size = 1) +
+als.umap_singleRoannot <- DimPlot(immune.obj,
+                                  reduction = "umap",
+                                  group.by = "SingleR.Annotation",
+                                  pt.size = 1) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   labs(title = "Pilocytic Astrocytoma: immune microenvironment",
-       subtitle = "SingleR annotation: Pombo-Antunes, 2021") +
+       subtitle = "SingleR annotation") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+als.umap_seuratclusters <- DimPlot(immune.obj,
+                                  reduction = "umap",
+                                  group.by = "seurat_clusters",
+                                  pt.size = 1) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma: immune microenvironment") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        plot.title = element_text(),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0))
+als.umap_patient <- DimPlot(immune.obj,
+                                   reduction = "umap",
+                                   group.by = "orig.ident",
+                                   pt.size = 1) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  labs(title = "Pilocytic Astrocytoma: immune microenvironment") +
   theme(panel.background = element_rect(colour = "black", size = 1),
         plot.title = element_text(),
         plot.subtitle = element_text(hjust = 0.5),
@@ -345,4 +422,65 @@ DimPlot(immune.obj,
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
 
-# save(integrated, immune.obj, file = paste0(wd, "PA/PA_Data/ALS.SeuratObjects_26.04.2022.RData"))
+library(gridExtra)
+pdf(paste0(fwd, "scUMAP.ALS_immuneMicroenviSingleR.pdf"), width = 20, height = 8)
+grid.arrange(als.umap_singleRpomboannot, als.umap_singleRoannot, ncol = 2)
+dev.off()
+
+pdf(paste0(fwd, "scUMAP.ALS_immuneMicroenviClustering.pdf"), width = 20, height = 8)
+grid.arrange(als.umap_patient, als.umap_seuratclusters, ncol = 2)
+dev.off()
+
+# save(immune.obj, file = paste0(wd, "PA/PA_Data/ALS.ImmuneObject_28.04.2022.RData"))
+
+
+########## Annotation of glima associated macrophages ##########
+library(SingleCellExperiment)
+library(Seurat)
+library(ComplexHeatmap)
+
+Idents(immune.obj) <- "SingleR.Pombo"
+gam.obj <- subset(x = immune.obj, idents = setdiff(immune.obj$SingleR.Pombo %>% unique(), c("NK cells", "B cells")))
+# see if there is a way to select specific cells, not clusters...
+DefaultAssay(gam.obj) <- "integrated"
+gam.obj <- ScaleData(gam.obj, verbose = F)
+gam.obj <- RunPCA(gam.obj, features = VariableFeatures(gam.obj))
+dims.use <- 30
+gam.obj <- RunUMAP(gam.obj, dims = 1:dims.use, min.dist = 0.5, verbose = F)
+DimPlot(gam.obj, group.by = "updated_location", reduction = "umap")
+DimPlot(gam.obj, group.by = "orig.ident", reduction = "umap")
+
+# Under-cluster cells and annotate using SingleR and Pombo annotations
+gam.obj <- FindNeighbors(gam.obj)
+gam.obj <- FindClusters(gam.obj, group.singletons = TRUE, resolution = 0.1)
+DimPlot(gam.obj, group.by = "seurat_clusters")
+
+markers <- FindAllMarkers(gam.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top5 <- markers %>%
+  group_by(cluster) %>%
+  top_n(n = 5, wt = avg_log2FC)
+
+gam.cluterHeatmap <- AverageExpression(gam.obj, 
+                                   assays = "integrated",
+                                   features = top5$gene,
+                                   group.by = "seurat_clusters",
+                                   return.seurat = TRUE)
+
+col_fun = colorRamp2(c(-2, 0, 2), c("navy", "white", "red"))
+Heatmap(gam.cluterHeatmap@assays$integrated@scale.data,
+        cluster_rows = FALSE,
+        cluster_columns = FALSE, 
+        border = "black",
+        column_split = c(0:5),
+        col = col_fun,
+        show_column_names = FALSE, 
+        heatmap_legend_param = list(
+          title = "Relative expression",
+          direction = "horizontal",
+          at = c(-2, 0, 2),
+          border = "black",
+          legend_width = unit(6, "cm"),
+          title_position = "topcenter"
+        ))
+
+# save(gam.obj, gam.cluterHeatmap, file = paste0(wd, "PA/PA_Data/ALS.GAMObject_28.04.2022.RData"))
