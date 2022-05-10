@@ -1,4 +1,4 @@
-# Single-cell Pilocytic Astrocytoma analysis (Alex's Lemonade Stand)
+# Single-cell Pilocytic Astrocytoma analysis (Alex's Lemonade Stand) and Taylor lab
 # Last updated: 26/04/2022
 
 ########## Initialize ##########
@@ -23,7 +23,7 @@ wd <- "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/P
 setwd(wd)
 fwd <- paste0(wd, "PA/Analysis/Figures/") # figure working directory
 
-########## Load data ##########
+########## Load ALS data ##########
 # compile all patient IDs
 patient_info <- read.delim(file = "Data/ALS_2022/SCPCP000002/single_cell_metadata.tsv") %>%
   filter(diagnosis == "Pilocytic astrocytoma")
@@ -67,6 +67,27 @@ combined <- merge(get(paste0(patient_ids[1], "_sce")),
                   project = "ALS_PiloAstro")
 rm(list = paste0(patient_ids, "_sce"))
 
+########## Load Taylor lab data ########## 
+taylor_ids <- list.files(path = paste0(wd, "Data/Vladoiu_2019/"))
+for (patient in taylor_ids) {
+  file_dir <- paste0(wd, "Data/Vladoiu_2019/", patient, "/")
+  counts <- Read10X(data.dir = file_dir)
+  seuratObj <- CreateSeuratObject(counts = counts, project = patient, assay = "RNA")
+  
+  print(paste0(patient, "_sce"))
+  assign(paste0(patient, "_sce"), seuratObj)
+  
+  rm(seuratObj)
+  rm(counts)
+}
+
+taylor.combined <- merge(get(paste0(taylor_ids[1], "_sce")),
+                         y = mget(paste0(taylor_ids[-1], "_sce")),
+                         add.cell.ids = c(taylor_ids),
+                         project = "Taylor_PiloAstro")
+rm(list = paste0(taylor_ids, "_sce"))
+
+########## Meta data  ########## 
 pf.sample <- patient_info$scpca_sample_id[patient_info$updated_location == "Posterior fossa"]
 st.sample <- patient_info$scpca_sample_id[patient_info$updated_location == "Supratentorial"]
 spine.sample <- patient_info$scpca_sample_id[patient_info$updated_location == "Spinal"]
@@ -74,23 +95,31 @@ spine.sample <- patient_info$scpca_sample_id[patient_info$updated_location == "S
 meta.data.keep <- cbind(combined@meta.data)
 meta.data.keep <- meta.data.keep %>% 
   as.data.frame() %>%
+  select(orig.ident) %>%
   mutate(updated_location = ifelse(meta.data.keep$orig.ident %in% pf.sample, "Posterior fossa",
                                    ifelse(meta.data.keep$orig.ident %in% st.sample, "Supratentorial", 
                                           ifelse(meta.data.keep$orig.ident %in% spine.sample, "Spinal", ""))))
-
 combined <- AddMetaData(combined, meta.data.keep)
+
+taylor.meta.data.keep <- cbind(taylor.combined@meta.data)
+taylor.meta.data.keep <- taylor.meta.data.keep %>% 
+  as.data.frame() %>%
+  select(orig.ident) %>%
+  mutate(updated_location = "Posterior fossa")
+taylor.combined <- AddMetaData(taylor.combined, taylor.meta.data.keep)
 
 ########## Quality Control ########## 
 library(scater)
 # change this to the object of interest
-seurat.object = combined
+# seurat.object = combined
+seurat.object = taylor.combined
 
 sce <- as.SingleCellExperiment(x = seurat.object)
 sce@colData$nCount_RNA <- NULL
 sce@colData$nFeature_RNA <- NULL
 
 # some quality results are in the seurat object metadata, but want to calculate on our own
-mito.genes <- grep("^MT-", rownames(sce), value = TRUE) # 37 mitochondrial genes
+mito.genes <- grep("^MT-", rownames(sce), value = TRUE) # 37 mitochondrial genes for combined; 13 for Taylor
 sce$percent.mito <- (Matrix::colSums(counts(sce)[mito.genes, ])*100)/Matrix::colSums(counts(sce)) 
 sce$nGene <- apply(counts(sce), 2, function(x) length(x[x > 0])) # number of expressed genes
 sce$nUMI <- apply(counts(sce), 2, sum) # total UMI counts (library size)
@@ -172,10 +201,19 @@ filtered_samples <- qc_df %>%
 sce_clean <- sce[,rownames(filtered_samples)]
 sce_clean@colData <- sce_clean@colData[Cells(sce_clean),]
 
+### Save ALS objects
 # save(sce, sce_clean, file = paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
 # load(paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
 
+### Save Taylor objects
+# taylor.sce <- sce
+# taylor.sce_clean <- sce_clean
+# save(taylor.sce, taylor.sce_clean, file = paste0(wd, "PA/PA_Data/Taylor.SingleCellExpObject_02.05.2022.RData"))
+
 ########## Make Seurat Object ##########
+load(paste0(wd, "PA/PA_Data/Taylor.SingleCellExpObject_02.05.2022.RData"))
+load(paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
+
 counts <- counts(sce_clean)
 rownames(counts) <- rownames(sce_clean)
 colnames(counts) <- colnames(sce_clean)
@@ -187,21 +225,18 @@ allcell.obj$percent.mito <- sce_clean$percent.mito
 allcell.obj$nCount_RNA <- NULL
 allcell.obj$nFeature_RNA <- NULL
 
-##### Split Seurat Object by Location #####
-# location.obj <- SplitObject(allcell.obj, split.by = "updated_location")
-# pf.obj <- location.obj$`Posterior fossa`
-# st.obj <- location.obj$Supratentorial
-# spinal.obj <- location.obj$Spinal
-# rm(location.obj, allcell.obj)
+counts <- counts(taylor.sce_clean)
+rownames(counts) <- rownames(taylor.sce_clean)
+colnames(counts) <- colnames(taylor.sce_clean)
+taylor.obj <- CreateSeuratObject(counts = counts)
+taylor.obj$updated_location <- taylor.sce_clean$updated_location
+taylor.obj$nUMI <- taylor.sce_clean$nUMI
+taylor.obj$nGene <- taylor.sce_clean$nGene
+taylor.obj$percent.mito <- taylor.sce_clean$percent.mito
+taylor.obj$nCount_RNA <- NULL
+taylor.obj$nFeature_RNA <- NULL
 
-# save(pf.obj, st.obj, spinal.obj, file = paste0(wd, "PA/PA_Data/ALS.LocationSeuratObjs_25.04.2022.RData"))
-
-# Normalization and clustering
-# load("PA/PA_Data/ALS.LocationSeuratObjs_25.04.2022.RData")
-library(Seurat)
-# was splitting object by locaiton before --> not anymore
-# seuratObj <- merge(x = pf.obj, y = c(st.obj, spinal.obj))
-object.list <- SplitObject(allcell.obj, split.by = "orig.ident")
+object.list <- c(SplitObject(allcell.obj, split.by = "orig.ident"), SplitObject(taylor.obj, split.by = "orig.ident"))
 for (i in 1:length(object.list)) {
   print(paste0("index: ", i, "; nCells: ", length(Cells(object.list[[i]]))))
 }
@@ -215,8 +250,10 @@ for (i in 1:length(object.list)) {
 
 # Find anchors
 anchors <- FindIntegrationAnchors(object.list = object.list, dims = 1:30, verbose = F)
+save(anchors, file = "/Users/jrozowsky/Desktop/anchors.RData")
 # Integrate data
 integrated <- IntegrateData(anchorset = anchors, verbose = F)
+save(integrated, file = "/Users/jrozowsky/Desktop/integrated.RData")
 
 integrated <- ScaleData(integrated, verbose = F)
 integrated <- RunPCA(integrated, features = VariableFeatures(integrated))
@@ -224,12 +261,12 @@ ElbowPlot(object = integrated, ndims = 50)
 # use 20 PCs
 
 dims.use <- 20
-integrated <- RunUMAP(integrated, dims = 1:dims.use, verbose = F)
+integrated <- RunUMAP(integrated, dims = 1:dims.use, verbose = F, min.dist = 0.05)
 assign(paste0("integrated_mito", mito_fraction.check), integrated)
 
 DimPlot(integrated,
-        pt.size = 0.75,
-        group.by = "orig.ident",
+        pt.size = 0.05,
+        split.by = "orig.ident",
         reduction = "umap") +
   xlab("UMAP1") + 
   ylab("UMAP2") +
@@ -273,24 +310,24 @@ DimPlot(integrated_mito30,
 
 
 ########## Clustering ##########
-load("PA/PA_Data/ALS.IntegratedObject_29.04.2022.RData")
-
-s.genes <- cc.genes$s.genes
-g2m.genes <- cc.genes$g2m.genes
-integrated <- CellCycleScoring(integrated, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
-
-DimPlot(integrated, group.by = "Phase")
 integrated <- FindNeighbors(integrated, 
-                           dims = 1:dims.use,
-                           annoy.metric = "euclidean")
+                            dims = 1:dims.use, k.param = 10,
+                            annoy.metric = "euclidean")
 integrated <- FindClusters(integrated, 
-                           resolution = 1, 
-                           group.singletons = TRUE,
+                           resolution = 0.5, group.singletons = TRUE,
                            algorithm = 1)
+integrated[["umap_new"]] <- CollapseEmbeddingOutliers(integrated,
+                                                      reduction = "umap", 
+                                                      reduction.key = 'umap_', 
+                                                      outlier.sd = 1.2)
+
+integrated@meta.data <- integrated@meta.data %>% 
+  mutate(dataset = ifelse(integrated$orig.ident %in% c("PA0706", "PA2406"), 
+                          "Taylor", "ALS"))
 DimPlot(integrated,
-        pt.size = 1,
-        #split.by = "orig.ident", 
-        reduction = "umap") +
+        pt.size = 0.01,
+        reduction = "umap_new",
+        group.by = "dataset") +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   labs(title = "Posterior Fossa Pilocytic Astrocytoma",
@@ -327,15 +364,14 @@ cell_idents <- merge(x = integrated@meta.data %>% rownames_to_column() %>%  sele
   column_to_rownames(var = "rowname")
 cell_idents <- cell_idents[rownames(integrated@meta.data),]
 integrated <- AddMetaData(integrated, metadata = cell_idents$cluster_predictions.listData.labels, col.name = "SingleR_ClustPred")
-DimPlot(integrated, reduction = "umap", group.by = "SingleR_ClustPred")
-DimPlot(integrated, reduction = "umap", group.by = "integrated_snn_res.1")
-DimPlot(integrated, reduction = "umap", group.by = "SingleR_ClustPred", split.by = "updated_location")
+DimPlot(integrated, reduction = "umap_new", group.by = "SingleR_ClustPred")
+DimPlot(integrated, reduction = "umap_new", group.by = "integrated_snn_res.1")
+FeaturePlot(integrated, reduction = "umap_new", features = "percent.mito")
 
-#save(integrated, file = paste0(wd, "PA/PA_Data/ALS.IntegratedObject_29.04.2022.RData"))
+save(integrated, file = paste0(wd, "PA/PA_Data/ALS.IntegratedObject_29.04.2022.RData"))
 
 ########## Annotation of immune cells ##########
 load("PA/PA_Data/Pombo.SeuratObj_30.03.2022.RData")
-load("PA/PA_Data/ALS.ImmuneObject_28.04.2022.RData")
 assign("ref.pombo", seuratObj); rm(seuratObj)
 library(SingleR)
 library(SingleCellExperiment)
@@ -348,26 +384,22 @@ immune.obj <- ScaleData(immune.obj, verbose = F)
 immune.obj <- RunPCA(immune.obj, features = VariableFeatures(immune.obj))
 dims.use <- 30
 immune.obj <- RunUMAP(immune.obj, dims = 1:dims.use, min.dist = 0.5, verbose = F)
-DimPlot(immune.obj, group.by = "updated_location", reduction = "umap")
+DimPlot(immune.obj, group.by = "dataset", reduction = "umap")
 DimPlot(immune.obj, group.by = "orig.ident", reduction = "umap")
-# We do not see inter-patient heterogeneity in the cell types
 
 # Under-cluster cells and annotate using SingleR and Pombo annotations
 immune.obj <- FindNeighbors(immune.obj)
-immune.obj <- FindClusters(immune.obj, group.singletons = TRUE, resolution = 0.3)
-DimPlot(immune.obj, group.by = "seurat_clusters")
+immune.obj <- FindClusters(immune.obj, group.singletons = TRUE, resolution = 1)
 
-
-### Compare our annotations to pombo and singleR annotations
 ref.pombo <- as.SingleCellExperiment(ref.pombo)
 
 # Update these parameters based on reference scSeq set
 ref.set = ref.pombo
 col.name = "SingleR.Pombo"
 immune.cluster_predictions <- SingleR(as.SingleCellExperiment(immune.obj), 
-                               ref = ref.set,
-                               labels = ref.set$cluster, # udpate this line based on reference set
-                               clusters = immune.obj$seurat_clusters)
+                                      ref = ref.set,
+                                      labels = ref.set$cluster, # udpate this line based on reference set
+                                      clusters = immune.obj$seurat_clusters)
 immune.cluster_idents <- data.frame(immune.cluster_predictions@rownames, immune.cluster_predictions@listData$labels)
 immune.cell_idents <- merge(x = immune.obj@meta.data %>% rownames_to_column() %>% select(rowname, seurat_clusters), 
                             y = immune.cluster_idents,
@@ -413,9 +445,9 @@ als.umap_singleRoannot <- DimPlot(immune.obj,
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
 als.umap_seuratclusters <- DimPlot(immune.obj,
-                                  reduction = "umap",
-                                  group.by = "seurat_clusters",
-                                  pt.size = 1) +
+                                   reduction = "umap",
+                                   group.by = "seurat_clusters",
+                                   pt.size = 1) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   labs(title = "Pilocytic Astrocytoma: immune microenvironment") +
@@ -429,9 +461,9 @@ als.umap_seuratclusters <- DimPlot(immune.obj,
         axis.title.x = element_text(hjust = 0),
         axis.title.y = element_text(hjust = 0))
 als.umap_patient <- DimPlot(immune.obj,
-                                   reduction = "umap",
-                                   group.by = "orig.ident",
-                                   pt.size = 1) +
+                            reduction = "umap",
+                            group.by = "orig.ident",
+                            pt.size = 1) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   labs(title = "Pilocytic Astrocytoma: immune microenvironment") +
@@ -466,7 +498,6 @@ ggplot(cell_annotations, aes(x = Sample, y = Count, fill = Cell)) +
   geom_bar(stat = "identity", position="fill")
 
 ########## Annotation of glima associated macrophages ##########
-load("PA/PA_Data/ALS.GAMObject_28.04.2022.RData")
 library(SingleCellExperiment)
 library(Seurat)
 library(ComplexHeatmap)
@@ -486,42 +517,20 @@ DimPlot(gam.obj, group.by = "orig.ident", reduction = "umap")
 gam.obj <- FindNeighbors(gam.obj)
 gam.obj <- FindClusters(gam.obj, group.singletons = TRUE, resolution = 0.1)
 DimPlot(gam.obj, group.by = "seurat_clusters")
-FeaturePlot(gam.obj, features = "TMEM119")
-
-als.umap_gams <- DimPlot(gam.obj,
-                                      reduction = "umap",
-                                      group.by = "seurat_clusters",
-                                      pt.size = 1) +
-  xlab("UMAP1") + 
-  ylab("UMAP2") +
-  labs(title = "Glioma associated myeloid cells",
-       subtitle = "seurat clusters: res = 0.1") +
-  theme(panel.background = element_rect(colour = "black", size = 1),
-        plot.title = element_text(),
-        plot.subtitle = element_text(hjust = 0.5),
-        axis.line = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text = element_blank(),
-        axis.title = element_text(size = 10),
-        axis.title.x = element_text(hjust = 0),
-        axis.title.y = element_text(hjust = 0))
-pdf(paste0(fwd, "scUMAP.ALS_GAMs.pdf"), width = 7, height = 6)
-print(als.umap_gams)
-dev.off()
 
 markers <- FindAllMarkers(gam.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-top7 <- markers %>%
+top5 <- markers %>%
   group_by(cluster) %>%
-  top_n(n = 7, wt = avg_log2FC)
+  top_n(n = 5, wt = avg_log2FC)
 
 gam.cluterHeatmap <- AverageExpression(gam.obj, 
-                                   assays = "integrated",
-                                   features = c(top5$gene),
-                                   group.by = "seurat_clusters",
-                                   return.seurat = TRUE)
+                                       assays = "integrated",
+                                       features = top5$gene,
+                                       group.by = "seurat_clusters",
+                                       return.seurat = TRUE)
 
-col_fun = colorRamp2(c(-1.5, 0, 1.5), c("navy", "white", "red"))
-ht_list <- Heatmap(gam.cluterHeatmap@assays$integrated@scale.data,
+col_fun = colorRamp2(c(-2, 0, 2), c("navy", "white", "red"))
+Heatmap(gam.cluterHeatmap@assays$integrated@scale.data,
         cluster_rows = FALSE,
         cluster_columns = FALSE, 
         border = "black",
@@ -536,35 +545,5 @@ ht_list <- Heatmap(gam.cluterHeatmap@assays$integrated@scale.data,
           legend_width = unit(6, "cm"),
           title_position = "topcenter"
         ))
-
-pdf(paste0(fwd, "scCluster.ALS_GAMs.pdf"), width = 3, height = 6)
-draw(ht_list, heatmap_legend_side = "bottom")
-dev.off()
-
-c = 3
-clusterGenes <- markers %>%
-  filter(cluster == c & p_val_adj < 0.001) %>%
-  arrange(-avg_log2FC) %>%
-  pull(gene)
-clusterGenes <- AnnotationDbi::select(org.Hs.eg.db,
-                                       keys = clusterGenes,
-                                       columns = c("ENTREZID", "SYMBOL"),
-                                       keytype = "SYMBOL") %>%
-  na.omit() %>%
-  pull(ENTREZID)
-enrichGO(gene = clusterGenes, 
-         OrgDb = org.Hs.eg.db, 
-         keyType = 'ENTREZID',
-         ont = "BP",
-         pAdjustMethod = "BH", 
-         qvalueCutoff = 0.001, 
-         readable = TRUE) %>%
-  enrichplot::pairwise_termsim() %>%
-  dotplot(x = "GeneRatio",
-          showCategory = 20,
-          font.size = 8,
-          title = paste0("Pathways enriched in cluster ", c))
-
-
 
 # save(gam.obj, gam.cluterHeatmap, file = paste0(wd, "PA/PA_Data/ALS.GAMObject_28.04.2022.RData"))
