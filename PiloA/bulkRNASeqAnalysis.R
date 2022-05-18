@@ -11,9 +11,9 @@ library(RColorBrewer)
 library(circlize)
 col_annotations <- list(
   Sex = c("M" = "skyblue", "F" = "pink"),
-  Location = c("Spinal" = "#EF553B", 
-               "Posterior Fossa" = "#636EFA", 
-               "Supratentorial" = "#00CC96"),
+  Location = c("spinal" = "#EF553B", 
+               "posterior fossa" = "#636EFA", 
+               "supratentorial" = "#00CC96"),
   LocationSpecific = c("cerebellum/4th" = "#636EFA",
                        "spinal cord" = "#EF553B",
                        "brain stem" = "black",
@@ -200,7 +200,9 @@ vsd <- vst(dds, blind = FALSE)
 #      dds,
 #      vsd,
 #      file = paste0(wd, "PA/PA_Data/CohortBulkRNAseq_04.04.2022.RData"))
-# load("PA/PA_Data/CohortBulkRNAseq_04.04.2022.RData")
+
+load("PA/PA_Data/CohortBulkRNAseq_04.04.2022.RData")
+
 # Select the most variably expressed genes -> these are non-x/y genes
 ### UMAP ###
 library(umap)
@@ -210,84 +212,120 @@ library(gridExtra)
 numGenes <- 1200
 seed <- 613
 
-p <- list()
-i = 1
-for (numGenes in seq(from = 400, to = 1500, by = 100)) {
-#for (seed in sample.int(1000, 12)) {
-#for (seed in c(613, 418, 790, 19)) {
-  #numGenes = 420
-  alpha = 0.4
-  gamma = 1
-  seed = 613
-  pca <- prcomp(t(assay(vsd)[varFeatures[1:numGenes], ]))
-  #umap_res <- umap(pca$x, alpha=0.4, gamma=1)
-  set.seed(seed); umap_res <- umap(pca$x, alpha = alpha, gamma = gamma)
-  umap_data <- cbind(umap_res$layout, data.frame(dds@colData))
-  bulkUmapPlot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
-    geom_point(aes(fill = LocationSpecific), colour = "grey30", pch = 21, size = 2) + 
-    xlab("UMAP1") + ylab("UMAP2") +
-    guides(col = guide_legend(ncol = 1)) +
-    scale_fill_manual(name = "Location", values = col_annotations$LocationSpecific) +
-    theme_classic() +
-    labs(subtitle = paste0("UMAP: varFeatures = ", numGenes, 
-                           "; seed = ", seed,
-                           "; alpha = ", alpha,
-                           "; gamma = ", gamma)) +
-    theme(panel.background = element_rect(colour = "grey30", size=1), 
-          axis.line = element_blank(),
-          plot.subtitle = element_text(size = 7.5),
-          axis.ticks = element_blank(),
-          axis.text = element_blank(),
-          legend.position = "none")
-  p[[i]] <- bulkUmapPlot
-  i = i + 1
-}
-do.call(grid.arrange,p)
+# p <- list()
+# i = 1
+# for (numGenes in seq(from = 400, to = 1500, by = 100)) {
+# for (seed in sample.int(1000, 12)) {
+# for (seed in c(613, 418, 790, 19)) {
+#   numGenes = 420
+#   alpha = 0.4
+#   gamma = 1
+#   seed = 613
+#   pca <- prcomp(t(assay(vsd)[varFeatures[1:numGenes], ]))
+#   #umap_res <- umap(pca$x, alpha=0.4, gamma=1)
+#   set.seed(seed); umap_res <- umap(pca$x, alpha = alpha, gamma = gamma)
+#   umap_data <- cbind(umap_res$layout, data.frame(dds@colData))
+#   bulkUmapPlot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
+#     geom_point(aes(fill = LocationSpecific), colour = "grey30", pch = 21, size = 2) + 
+#     xlab("UMAP1") + ylab("UMAP2") +
+#     guides(col = guide_legend(ncol = 1)) +
+#     scale_fill_manual(name = "Location", values = col_annotations$LocationSpecific) +
+#     theme_classic() +
+#     labs(subtitle = paste0("UMAP: varFeatures = ", numGenes, 
+#                            "; seed = ", seed,
+#                            "; alpha = ", alpha,
+#                            "; gamma = ", gamma)) +
+#     theme(panel.background = element_rect(colour = "grey30", size=1), 
+#           axis.line = element_blank(),
+#           plot.subtitle = element_text(size = 7.5),
+#           axis.ticks = element_blank(),
+#           axis.text = element_blank(),
+#           legend.position = "none")
+#   p[[i]] <- bulkUmapPlot
+#   i = i + 1
+# }
+# do.call(grid.arrange,p)
 # numGenes = 1200; alpha = 0.7; gamma = 1 looks best
 # seed: 613, 418, 790, 19
-
 
 numGenes = 1200
 alpha = 0.7
 gamma = 1
 seed = 19
 pca <- prcomp(t(assay(vsd)[varFeatures[1:numGenes], ]))
-#umap_res <- umap(pca$x, alpha=0.4, gamma=1)
 set.seed(seed); umap_res <- umap(pca$x, alpha = alpha, gamma = gamma)
 umap_data <- cbind(umap_res$layout, data.frame(dds@colData))
-bulkUmapPlot <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
-  geom_point(aes(fill = LocationSpecific), colour = "grey30", pch = 21, size = 2) + 
+levels(umap_data$Location) <- c("spinal", "posterior fossa", "supratentorial")
+bulkUmapPlot.Loc <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
+  geom_point(aes(fill = Location), colour = "grey30", pch = 21, size = 2.5) + 
   xlab("UMAP1") + ylab("UMAP2") +
   guides(col = guide_legend(ncol = 1)) +
-  scale_fill_manual(name = "Location", values = col_annotations$LocationSpecific) +
+  scale_fill_manual(name = "Location", values = col_annotations$Location) +
   theme_classic() +
-  labs(title = "PMC cohort: pilocytic astrocyoma",
-       subtitle = "colored by CNS location") +
+  # labs(title = "PMC cohort: pilocytic astrocyoma",
+  #      subtitle = "colored by CNS location") +
   theme(panel.background = element_rect(colour = "grey30", size=1), 
         axis.line = element_blank(),
         plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = 0.5),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
-        legend.position = "right")
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0),
+        legend.position = "none")
 
-# pdf(paste0(fwd, "BulkCohortUMAP_05.04.2022.pdf"), width = 7.75, height = 6.5)
-# print(bulkUmapPlot)
-# dev.off()
+bulkUmapPlot.LocSpec <- ggplot(data = umap_data, aes(x = `1`, y = `2`)) +
+  geom_point(aes(fill = LocationSpecific), colour = "grey30", pch = 21, size = 2.5) + 
+  xlab("UMAP1") + ylab("UMAP2") +
+  guides(col = guide_legend(ncol = 1)) +
+  scale_fill_manual(name = "Location", values = col_annotations$LocationSpecific) +
+  theme_classic() +
+  # labs(title = "PMC cohort: pilocytic astrocyoma",
+  #      subtitle = "colored by CNS location") +
+  theme(panel.background = element_rect(colour = "grey30", size=1), 
+        axis.line = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title.x = element_text(hjust = 0),
+        axis.title.y = element_text(hjust = 0),
+        legend.position = "none")
+
+pdf(paste0(fwd, "BulkCohortUMAP.Location_12.05.2022.pdf"), width = 5, height = 5)
+print(bulkUmapPlot.Loc)
+dev.off()
+
+pdf(paste0(fwd, "BulkCohortUMAP.LocationSpecific_12.05.2022.pdf"), width = 5, height = 5)
+print(bulkUmapPlot.LocSpec)
+dev.off()
+
+library(ggpubr)
+leg.Loc <- get_legend(bulkUmapPlot.Loc)
+leg.LocSpec <- get_legend(bulkUmapPlot.LocSpec)
+
+pdf(paste0(fwd, "CNSLocationColors_12.05.2022.pdf"), width = 6, height = 3)
+grid.arrange(as_ggplot(leg.Loc), as_ggplot(leg.LocSpec), ncol = 2)
+dev.off()
+
 
 ### Unsupervised clustering ###
 library(ComplexHeatmap)
 # Identify protein-coding genes
 varFeatures_coding <- varFeatures[varFeatures %in% protein_genes]
 
+# TRY K-MEANS CLUSTERING
+group = kmeans(t(dataScale), centers = 3)$cluster
+
 # calculate inter-patient correlation based on protein-coding gene expression
-corr_res <- cor(dataScale[varFeatures_coding[1:262],], method = "pearson")
+corr_res <- cor(dataScale[varFeatures_coding[1:420],], method = "pearson")
+levels(covariate_data$Location) <- c("spinal", "posterior fossa", "supratentorial")
 Heatmap(corr_res,
         show_heatmap_legend = TRUE,
         clustering_distance_rows = "pearson",
         clustering_distance_columns = "pearson",
         top_annotation = HeatmapAnnotation(Sex = covariate_data$Sex,
-                                           LocationSpecific = covariate_data$LocationSpecific,
+                                           Location = covariate_data$Location,
                                            col = col_annotations, 
                                            show_legend = TRUE),
         show_row_names = FALSE,
