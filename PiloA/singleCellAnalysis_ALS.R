@@ -127,7 +127,7 @@ ggplot(mapping = aes(x = sce$percent.mito)) +
   geom_vline(xintercept = 30, color = "red")
 
 # Set Thresholds for qualtiy control
-genes_exp.check = 300
+genes_exp.check = 500
 total_counts.check = 1000
 mito_fraction.check = 25
 
@@ -175,18 +175,7 @@ sce_clean@colData <- sce_clean@colData[Cells(sce_clean),]
 # save(sce, sce_clean, file = paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
 
 ########## Make Seurat Object ##########
-# load(paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_25.04.2022.RData"))
-counts <- counts(sce_clean)
-rownames(counts) <- rownames(sce_clean)
-colnames(counts) <- colnames(sce_clean)
-allcell.obj <- CreateSeuratObject(counts = counts)
-allcell.obj$updated_location <- sce_clean$updated_location
-allcell.obj$nUMI <- sce_clean$nUMI
-allcell.obj$nGene <- sce_clean$nGene
-allcell.obj$percent.mito <- sce_clean$percent.mito
-allcell.obj$nCount_RNA <- NULL
-allcell.obj$nFeature_RNA <- NULL
-
+# load(paste0(wd, "PA/PA_Data/ALS.SingleCellExpObject_19.05.2022.RData"))
 library(Seurat)
 object.list <- SplitObject(allcell.obj, split.by = "orig.ident")
 for (i in 1:length(object.list)) {
@@ -295,6 +284,7 @@ assign("ref.pombo", seuratObj); rm(seuratObj)
 library(SingleR)
 library(SingleCellExperiment)
 library(Seurat)
+library(ComplexHeatmap)
 
 DefaultAssay(immune.obj) <- "integrated"
 immune.obj <- ScaleData(immune.obj, verbose = F)
@@ -356,25 +346,26 @@ print(scUMAP.ALS_immuneMicro)
 dev.off()
 
 Idents(immune.obj) <- "SingleR.Pombo"
-markers <- FindAllMarkers(immune.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-top7 <- markers %>%
+immune.markers <- FindAllMarkers(immune.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top5.immune <- immune.markers %>%
   group_by(cluster) %>%
-  top_n(n = 7, wt = avg_log2FC)
+  top_n(n = 5, wt = avg_log2FC)
 
 immune.cluterHeatmap <- AverageExpression(immune.obj, 
                                        assays = "integrated",
-                                       features = c(top7$gene),
-                                       group.by = "SingleR.Pombo",
+                                       features = c(top5.immune$gene),
                                        return.seurat = TRUE)
 
 col_fun = colorRamp2(c(-1.5, 0, 1.5), c("navy", "white", "red"))
-Heatmap(immune.cluterHeatmap@assays$integrated@scale.data,
+scCluster.ALS_immune <- Heatmap(immune.cluterHeatmap@assays$integrated@scale.data,
         cluster_rows = FALSE,
         cluster_columns = FALSE, 
         border = "black",
         column_split = c(0:5),
-        col = col_fun,
-        show_column_names = FALSE, 
+        col = col_fun, 
+        column_title = " ",
+        show_column_names = TRUE,  
+        column_names_side = "top",
         heatmap_legend_param = list(
           title = "Relative expression",
           direction = "horizontal",
@@ -384,8 +375,8 @@ Heatmap(immune.cluterHeatmap@assays$integrated@scale.data,
           title_position = "topcenter"
         ))
 
-pdf(paste0(fwd, "test.pdf"), width = 3, height = 6)
-draw(ht_list, heatmap_legend_side = "bottom")
+pdf(paste0(fwd, "scCluster.ALS_immune.pdf"), width = 4, height = 7)
+draw(scCluster.ALS_immune, heatmap_legend_side = "bottom")
 dev.off()
 
 
@@ -406,31 +397,37 @@ ggplot(cell_annotations, aes(x = Sample, y = Count, fill = Cell)) +
 library(SingleCellExperiment)
 library(Seurat)
 library(ComplexHeatmap)
+load("PA/PA_Data/Pombo.SeuratObj_30.03.2022.RData")
+assign("ref.pombo", seuratObj); rm(seuratObj)
+load("PA/PA_Data/ALS.GAMObject_28.04.2022.RData")
 
 Idents(immune.obj) <- "SingleR.Pombo"
-gam.obj <- subset(x = immune.obj, idents = setdiff(immune.obj$SingleR.Pombo %>% unique(), c("NK cells", "B cells")))
+# gam.obj <- subset(x = immune.obj, idents = setdiff(immune.obj$SingleR.Pombo %>% unique(), c("NK cells", "B cells")))
+gam.obj <- subset(x = immune.obj, idents = c("TAM", "prol. TAM"))
+
 # see if there is a way to select specific cells, not clusters...
 DefaultAssay(gam.obj) <- "integrated"
 gam.obj <- ScaleData(gam.obj, verbose = F)
 gam.obj <- RunPCA(gam.obj, features = VariableFeatures(gam.obj))
 dims.use <- 30
-gam.obj <- RunUMAP(gam.obj, dims = 1:dims.use, min.dist = 0.5, verbose = F)
+gam.obj <- RunUMAP(gam.obj, dims = 1:dims.use, min.dist = 0.6, verbose = F)
 DimPlot(gam.obj, group.by = "updated_location", reduction = "umap")
 DimPlot(gam.obj, group.by = "orig.ident", reduction = "umap")
 
-# Under-cluster cells and annotate using SingleR and Pombo annotations
 gam.obj <- FindNeighbors(gam.obj)
-gam.obj <- FindClusters(gam.obj, group.singletons = TRUE, resolution = 0.1)
+gam.obj <- FindClusters(gam.obj, group.singletons = TRUE, resolution = 0.14)
+DimPlot(gam.obj, cells.highlight = Mo_TAM, group.by = "seurat_clusters")
+DimPlot(gam.obj, cells.highlight = Mg_TAM, group.by = "seurat_clusters")
 DimPlot(gam.obj, group.by = "seurat_clusters")
-DimPlot(gam.obj, group.by = "updated_location")
 
 FeaturePlot(gam.obj, features = "TMEM119")
 
-load("PA/PA_Data/ALS.GAMObject_28.04.2022.RData")
 als.umap_gams <- DimPlot(gam.obj,
                                       reduction = "umap",
                                       group.by = "seurat_clusters",
-                                      pt.size = 1) +
+                                      pt.size = 1,
+                         label = TRUE,
+                         label.size = 8) +
   xlab("UMAP1") + 
   ylab("UMAP2") +
   theme(panel.background = element_rect(colour = "black", size = 1),
@@ -441,8 +438,8 @@ als.umap_gams <- DimPlot(gam.obj,
         axis.ticks = element_blank(),
         axis.text = element_blank(),
         axis.title = element_text(size = 10),
-        axis.title.x = element_text(hjust = 0),
-        axis.title.y = element_text(hjust = 0))
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
 als.umap_gams.loc <- DimPlot(gam.obj,
                          reduction = "umap",
                          group.by = "updated_location",
@@ -450,43 +447,45 @@ als.umap_gams.loc <- DimPlot(gam.obj,
   xlab("UMAP1") + 
   ylab("UMAP2") +
   theme(panel.background = element_rect(colour = "black", size = 1),
-        #legend.position = "none",
+        legend.position = "none",
         plot.title = element_blank(),
         plot.subtitle = element_blank(),
         axis.line = element_blank(),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
         axis.title = element_text(size = 10),
-        axis.title.x = element_text(hjust = 0),
-        axis.title.y = element_text(hjust = 0))
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
 pdf(paste0(fwd, "scUMAP.ALS_GAMs.pdf"), width = 4, height = 4)
 print(als.umap_gams)
 dev.off()
 
-pdf(paste0(fwd, "scUMAP.ALS_GAMs.loc.pdf"), width = 5.5, height = 4)
+pdf(paste0(fwd, "scUMAP.ALS_GAMs.loc.pdf"), width = 4, height = 4)
 print(als.umap_gams.loc)
 dev.off()
 
-dam_genes <- c("SPP1", "")
-
-markers <- FindAllMarkers(gam.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-top7 <- markers %>%
+gam.markers <- FindAllMarkers(gam.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top5 <- gam.markers %>%
   group_by(cluster) %>%
-  top_n(n = 7, wt = avg_log2FC)
-
+  top_n(n = 5, wt = avg_log2FC)
+gam.genes <- top5$gene
+gam.genes[7] <- "HLA-DPB1"
+gam.genes[12] <- "SERPINE2"
+gam.genes[20] <- "LYZ"
 gam.cluterHeatmap <- AverageExpression(gam.obj, 
                                    assays = "integrated",
-                                   features = c(top5$gene),
+                                   features = gam.genes,
                                    group.by = "seurat_clusters",
                                    return.seurat = TRUE)
 
-col_fun = colorRamp2(c(-1.5, 0, 1.5), c("navy", "white", "red"))
+col_fun = colorRamp2(c(-1.5, 0, 1.5), c("navy", "black", "red"))
 ht_list <- Heatmap(gam.cluterHeatmap@assays$integrated@scale.data,
         cluster_rows = FALSE,
         cluster_columns = FALSE, 
         border = "black",
         column_split = c(0:5),
         col = col_fun,
+        column_title = " ",
         show_column_names = FALSE, 
         heatmap_legend_param = list(
           title = "Relative expression",
@@ -497,23 +496,181 @@ ht_list <- Heatmap(gam.cluterHeatmap@assays$integrated@scale.data,
           title_position = "topcenter"
         ))
 
-pdf(paste0(fwd, "scCluster.ALS_GAMs.pdf"), width = 3, height = 6)
+pdf(paste0(fwd, "scCluster.ALS_GAMs.pdf"), width = 3.3, height = 6)
 draw(ht_list, heatmap_legend_side = "bottom")
 dev.off()
 
+### Cell-type prediction with Pombo Dataset
+library(SingleR)
+gam.sce <- as.SingleCellExperiment(gam.obj)
+ref.pombo <- as.SingleCellExperiment(ref.pombo)
+gam.predication <- SingleR(test = gam.sce,
+                           ref = ref.pombo,
+                           labels = ref.pombo$cluster)
+gam.predication <- gam.predication[colnames(gam.obj),]
+# save(gam.predication, file = "PA/PA_Data/test.RData")
+gam.obj <- AddMetaData(gam.obj, gam.predication$labels, col.name = "SingleR.Pombo_Cell")
+
+Mg_TAM <- colnames(gam.obj)[gam.obj$SingleR.Pombo_Cell == "TAM 2" & gam.obj$SingleR.Pombo == "TAM"]
+Mo_TAM <- colnames(gam.obj)[gam.obj$SingleR.Pombo_Cell == "TAM 1" & gam.obj$SingleR.Pombo == "TAM"]
+
+DimPlot(gam.obj, cells.highlight = Mg_TAM, sizes.highlight = 0.2)
+DimPlot(gam.obj, cells.highlight = Mo_TAM, sizes.highlight = 0.2)
+
+scUMAP.ALS_GAMs.mgTAMS <- DimPlot(gam.obj, cells.highlight = Mg_TAM, sizes.highlight = 0.2) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        legend.position = "none",
+        plot.title = element_blank(),
+        plot.subtitle = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+pdf(paste0(fwd, "scUMAP.ALS_GAMs.mgTAMS.pdf"), width = 2, height = 2)
+print(scUMAP.ALS_GAMs.mgTAMS)
+dev.off()
+
+scUMAP.ALS_GAMs.moTAMS <- DimPlot(gam.obj, cells.highlight = Mo_TAM, sizes.highlight = 0.2) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        legend.position = "none",
+        plot.title = element_blank(),
+        plot.subtitle = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+pdf(paste0(fwd, "scUMAP.ALS_GAMs.moTAMS.pdf"), width = 2, height = 2)
+print(scUMAP.ALS_GAMs.moTAMS)
+dev.off()
+
+### M1 vs M2 module score
+MacSig <- read_excel(path = "Data/Azizi_2018.GeneSets.xlsx", sheet = "MacrophageSignature")
+m1_sig <- MacSig %>% select(`M1 Macrophage Polarization`) %>% drop_na() %>% pull(`M1 Macrophage Polarization`) %>% unique()
+m1_sig[m1_sig %in% rownames(gam.obj@assays$RNA@counts) == FALSE]
+m1_sig <- c(m1_sig[m1_sig %in% rownames(gam.obj@assays$RNA@counts) == TRUE], 
+            c("IL12A", "IL23A", "HLA-DRB1", "NOS2", "FCGR1A", "CXCL10", "TNF"))
+
+m2_sig <- MacSig %>% select(`M2 Macrophage Polarization`) %>% drop_na() %>% pull(`M2 Macrophage Polarization`) %>% unique()
+m2_sig[m2_sig %in% rownames(gam.obj@assays$RNA@counts) == FALSE]
+m2_sig <- c(m2_sig[m2_sig %in% rownames(gam.obj@assays$RNA@counts) == TRUE],
+            c("FCGR2A", "FCER2", "PDCD1LG2", "CD274", "MRC1", "CST3", "FASLG"))
+seed = 10
+gam.obj <- AddModuleScore(gam.obj,
+                          features = list(sample(m2_sig, 20)),
+                          name ="ModuleScore_M2",
+                          assay = "RNA")
+gam.obj <- AddModuleScore(gam.obj,
+                          features = list(sample(m1_sig, 20)),
+                          name ="ModuleScore_M1",
+                          assay = "RNA")
+
+als.umap_gams.M1ModuleScore <- FeaturePlot(gam.obj,
+                                           features = c("ModuleScore_M11")) +
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "RdBu"))) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        legend.position = "none",
+        plot.title = element_blank(),
+        plot.subtitle = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+pdf(paste0(fwd, "als.umap_gams.M1ModuleScore.pdf"), width = 2, height = 2)
+print(als.umap_gams.M1ModuleScore)
+dev.off()
+
+als.umap_gams.M2ModuleScore <- FeaturePlot(gam.obj,
+                                           features = c("ModuleScore_M21")) +
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "RdBu"))) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        legend.position = "none",
+        plot.title = element_blank(),
+        plot.subtitle = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+pdf(paste0(fwd, "als.umap_gams.M2ModuleScore.pdf"), width = 2, height = 2)
+print(als.umap_gams.M2ModuleScore)
+dev.off()
+
+scPlot.ALS_GAMS.M2ModuleScore <- ggplot(gam.obj@meta.data, aes(x = seurat_clusters, y = ModuleScore_M21, col = seurat_clusters)) + 
+  geom_violin() +
+  geom_boxplot(width = 0.15) +
+  xlab("TAM Clusters") +
+  ylab("M2 module score") +
+  theme_classic() +
+  ylim(-0.2, 1) +
+  theme(panel.background = element_rect(colour = "black", size = 1.5),
+        legend.position = "none",
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank()) +
+  stat_compare_means(label.x = 1.6, label.y = 0.97)
+pdf(paste0(fwd, "scPlot.ALS_GAMS.M2ModuleScore.pdf"), width = 2.6, height = 3)
+print(scPlot.ALS_GAMS.M2ModuleScore)
+dev.off()
+
+ggplot(gam.obj@meta.data, aes(x = seurat_clusters, y = ModuleScore_M11, col = seurat_clusters)) + 
+  geom_violin() +
+  geom_boxplot(width = 0.15) +
+  xlab("TAM Clusters") +
+  ylab("M1 module score") +
+  theme_classic() +
+  ylim(-0.2, 1) +
+  theme(panel.background = element_rect(colour = "black", size = 1.5),
+        legend.position = "none",
+        axis.line = element_blank(),
+        axis.title = element_text(size = 10)) +
+  stat_compare_means(label.x = 1.5, label.y = 0.97)
+
+scPlot.ALS_GAMS.M1vM2ModuleScore <- ggplot(gam.obj@meta.data, aes(x = ModuleScore_M11, y = ModuleScore_M21, col = seurat_clusters)) + 
+  geom_point() +
+  xlab("M1-macrophage module score") +
+  ylab("M2-macrophage module score") +
+  geom_vline(xintercept = 0, size = 0.3) +
+  geom_hline(yintercept = 0, size = 0.3) +
+  theme_classic() +
+  ylim(-0.2, 1) +
+  theme(panel.background = element_rect(colour = "black", size = 1.5),
+        legend.position = "none",
+        axis.line = element_blank(),
+        axis.title = element_blank())
+pdf(paste0(fwd, "scPlot.ALS_GAMS.M1vM2ModuleScore.pdf"), width = 3, height = 3)
+print(scPlot.ALS_GAMS.M1vM2ModuleScore)
+dev.off()
+
+### GSEA with GAM clusters
 library(org.Hs.eg.db)
 library(enrichplot)
 library(clusterProfiler)
 for (c in c(0:5)) {
-  clusterGenes <- markers %>%
+  clusterGenes <- gam.markers %>%
     filter(cluster == c & p_val_adj < 0.01) %>%
     arrange(-avg_log2FC) %>%
     pull(gene)
-  rankGenes <- markers %>%
-    filter(cluster == c & p_val_adj < 0.01) %>%
-    arrange(-avg_log2FC) %>%
-    pull(avg_log2FC)
-  geneWithRanks <- data.frame(GeneName = clusterGenes, GeneRank = rankGenes)
+  # rankGenes <- gam.markers %>%
+  #   filter(cluster == c & p_val_adj < 0.01) %>%
+  #   arrange(-avg_log2FC) %>%
+  #   pull(avg_log2FC)
+  # geneWithRanks <- data.frame(GeneName = clusterGenes, GeneRank = rankGenes)
   # write.table(x = geneWithRanks,
   #       file = paste0(wd, "PA/PA_Data/scGeneSets/PA_TAM.C", c, "_11.05.2022.txt"),
   #       sep = "\t",
@@ -549,12 +706,60 @@ for (c in c(0:5)) {
 # https://www.gsea-msigdb.org/gsea/msigdb/cards/GSE5099_CLASSICAL_M1_VS_ALTERNATIVE_M2_MACROPHAGE_UP.html
 # https://www.gsea-msigdb.org/gsea/msigdb/cards/GSE5099_CLASSICAL_M1_VS_ALTERNATIVE_M2_MACROPHAGE_DN.html
 
+tam_markers <- FindMarkers(gam.obj, ident.1 = 0, ident.2 = 1)
+c0Genes <- tam_markers %>%
+  rownames_to_column() %>%
+  filter(avg_log2FC > 0 & p_val_adj < 0.01) %>%
+  arrange(-avg_log2FC) %>%
+  pull(rowname)
+c1Genes <- tam_markers %>%
+  rownames_to_column() %>%
+  filter(avg_log2FC < 0 & p_val_adj < 0.01) %>%
+  arrange(avg_log2FC) %>%
+  pull(rowname)
+c0Genes <- AnnotationDbi::select(org.Hs.eg.db,
+                                      keys = c0Genes,
+                                      columns = c("ENTREZID", "SYMBOL"),
+                                      keytype = "SYMBOL") %>%
+  na.omit() %>%
+  pull(ENTREZID)
+c1Genes <- AnnotationDbi::select(org.Hs.eg.db,
+                                      keys = c1Genes,
+                                      columns = c("ENTREZID", "SYMBOL"),
+                                      keytype = "SYMBOL") %>%
+  na.omit() %>%
+  pull(ENTREZID)
+goPlot_c0 <- enrichGO(gene = c0Genes,
+                   OrgDb = org.Hs.eg.db,
+                   keyType = 'ENTREZID',
+                   ont = "BP",
+                   pAdjustMethod = "BH",
+                   qvalueCutoff = 0.001,
+                   readable = TRUE) %>%
+  enrichplot::pairwise_termsim() %>%
+  dotplot(x = "GeneRatio",
+          showCategory = 20,
+          font.size = 8,
+          title = paste0("Pathways enriched in cluster 0"))
+goPlot_c1 <- enrichGO(gene = c1Genes,
+                   OrgDb = org.Hs.eg.db,
+                   keyType = 'ENTREZID',
+                   ont = "BP",
+                   pAdjustMethod = "BH",
+                   qvalueCutoff = 0.001,
+                   readable = TRUE) %>%
+  enrichplot::pairwise_termsim() %>%
+  dotplot(x = "GeneRatio",
+          showCategory = 20,
+          font.size = 8,
+          title = paste0("Pathways enriched in cluster 1"))
+
 Idents(ref.pombo) <- "cluster"
-tam_markers <- FindMarkers(ref.pombo, ident.1 = "TAM 1", ident.2 = "TAM 2")
-pombo_markers <- FindAllMarkers(ref.pombo)
+pombo_markers <- FindAllMarkers(ref.pombo, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
 pombo_markers <- pombo_markers %>%
   filter(gene %in% rownames(gam.obj))
-nGene <- 15
+nGene <- 50
 mo_tam <- pombo_markers %>%
   filter(cluster == "TAM 1") %>%
   arrange(-avg_log2FC) %>%
@@ -617,8 +822,8 @@ als.umap_gams.mgModuleScore <- FeaturePlot(gam.obj,
         axis.ticks = element_blank(),
         axis.text = element_blank(),
         axis.title = element_text(size = 10),
-        axis.title.x = element_text(hjust = 0),
-        axis.title.y = element_text(hjust = 0))
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
 pdf(paste0(fwd, "scUMAP.ALS_GAMs.mgModuleScore.pdf"), width = 2, height = 2)
 print(als.umap_gams.mgModuleScore)
 dev.off()
@@ -636,8 +841,8 @@ als.umap_gams.moModuleScore <- FeaturePlot(gam.obj,
         axis.ticks = element_blank(),
         axis.text = element_blank(),
         axis.title = element_text(size = 10),
-        axis.title.x = element_text(hjust = 0),
-        axis.title.y = element_text(hjust = 0))
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
 pdf(paste0(fwd, "scUMAP.ALS_GAMs.moTamModuleScore.pdf"), width = 2, height = 2)
 print(als.umap_gams.moModuleScore)
 dev.off()
@@ -655,32 +860,27 @@ als.umap_gams.prolifTamModuleScore <- FeaturePlot(gam.obj,
         axis.ticks = element_blank(),
         axis.text = element_blank(),
         axis.title = element_text(size = 10),
-        axis.title.x = element_text(hjust = 0),
-        axis.title.y = element_text(hjust = 0))
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
 pdf(paste0(fwd, "scUMAP.ALS_GAMs.prolifTamModuleScore.pdf"), width = 2, height = 2)
 print(als.umap_gams.prolifTamModuleScore)
 dev.off()
 
-
-
-FeaturePlot(gam.obj,
-            features = c("ModuleScore_proTAM1")) +
-  scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "RdBu")))
-
-save(gam.obj, gam.cluterHeatmap, markers, pombo_markers, file = paste0(wd, "PA/PA_Data/ALS.GAMObject_28.04.2022.RData"))
+# save(gam.obj, gam.cluterHeatmap, gam.predication, gam.markers, pombo_markers, file = paste0(wd, "PA/PA_Data/ALS.GAMObject_28.04.2022.RData"))
 
 ########## Annotation of lymphocytes ##########
 library(SingleCellExperiment)
 library(Seurat)
 library(ComplexHeatmap)
+load("PA/PA_Data/ALS.LymphObject_21.05.2022.RData")
 
-Idents(immune.obj) <- "SingleR.Pombo"
+Idents(immune.obj) <- "SingleR.Annotation"
 immune.obj$SingleR.Annotation %>% table()
 immune.obj$SingleR.Pombo %>% table()
 # the number of T-cell + NK-cell is same across both annotations --> check
 # the number of B-cell is the same across both annotations --> check
 
-lym.obj <- subset(x = immune.obj, idents = c("NK cells"))
+lym.obj <- subset(x = immune.obj, idents = c("T_cells", "B_cell"))
 # see if there is a way to select specific cells, not clusters...
 DefaultAssay(lym.obj) <- "integrated"
 lym.obj <- ScaleData(lym.obj, verbose = F)
@@ -707,12 +907,12 @@ lym.obj <- AddModuleScore(lym.obj,
 FeaturePlot(lym.obj, features = "ModuleScore_TCell1")
 
 remove.myeloid <- colnames(lym.obj)[lym.obj$ModuleScore_myeloid1 > 0]
-remove.both <- colnames(lym.obj)[lym.obj$ModuleScore_TCell1 > 0.5 & lym.obj$ModuleScore_myeloid1 > 0.5]
+remove.both <- colnames(lym.obj)[lym.obj$ModuleScore_TCell1 > 1 & lym.obj$ModuleScore_myeloid1 > 1]
 
 lym.obj <- lym.obj[,!colnames(lym.obj) %in% c(remove.myeloid, remove.both)]
 DimPlot(lym.obj, group.by = "SingleR.Annotation", reduction = "umap")
 
-ggplot(data = lym.obj@meta.data, aes(x = ModuleScore_TCell1, y = ModuleScore_myeloid1)) + geom_point()
+ggplot(data = lym.obj@meta.data, aes(x = ModuleScore_TCell1, y = ModuleScore_myeloid1, col = SingleR.Annotation)) + geom_point()
 # Cluster 0 expresses high levels of myeloid and t cell related genes --> remove cluster 0
 
 ### Proceed with filtered cells
@@ -722,33 +922,16 @@ lym.obj <- RunPCA(lym.obj, features = VariableFeatures(lym.obj))
 dims.use <- 30
 lym.obj <- RunUMAP(lym.obj, dims = 1:dims.use, min.dist = 1, verbose = F)
 lym.obj <- FindNeighbors(lym.obj)
-lym.obj <- FindClusters(lym.obj, group.singletons = TRUE, resolution = 0.1)
+lym.obj <- FindClusters(lym.obj, group.singletons = TRUE, resolution = 0.3)
+DimPlot(lym.obj, group.by = "SingleR.Annotation", reduction = "umap")
 DimPlot(lym.obj, group.by = "seurat_clusters", reduction = "umap")
 
-nk_genes <- c("KIR2DL1", "KIR2DL3", "KIR2DS4")
-nksig_genes <- c("KLRC1", "GNLY", "TRDC", "FGFBP2", "KLRB1", "KLRC2")
-cytotoxic_genes <- c("PRF1", "GZMB", "GZMA", "GZMH", "NKG7", "GNLY")
-inhib_genes <- c("PDCD1", "CTLA4", "HAVCR2", "LAG3", "TIGIT")
-trm_genes <- c("CA10", "ITGA1", "ITGAE", "IL2", "IL10", "CXCR6", "CXCL13", "KCNK5", "RGS1", "CRTAM", "DUSP6", "PDCD1")
-cd8_genes <- c("CD8A", "KLRK1", "NKG7", "CD8B", "KLRC4", "KLRD1", "ZNF683")
-cd4_genes <- c("CD4", "CD40LG", "KLRB1", "RUNX2", "IL7R")
-lym.obj <- AddModuleScore(lym.obj,
-                          features = list(nksig_genes),
-                          name = "ModuleScore_NKSig",
-                          assay = "RNA")
-lym.obj <- AddModuleScore(lym.obj,
-                          features = list(cytotoxic_genes),
-                          name = "ModuleScore_cytotoxic",
-                          assay = "RNA")
-lym.obj <- AddModuleScore(lym.obj,
-                          features = list(cd4_genes),
-                          name = "ModuleScore_CD4",
-                          assay = "RNA")
-FeaturePlot(lym.obj,
-            features = c("ModuleScore_CD41")) +
-  scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "RdBu"))) +
-  xlab("UMAP1") + 
-  ylab("UMAP2") +
+new.cluster.ids <- c("CD8 T cell", "CD4 T cell", "CD8 T cell", "CD8 T cell", "B cell")
+names(new.cluster.ids) <- levels(lym.obj)
+lym.obj <- RenameIdents(lym.obj, new.cluster.ids)
+DimPlot(lym.obj, reduction = "umap")
+
+scUMAP.ALS_Lymphs <- DimPlot(lym.obj) +
   theme(panel.background = element_rect(colour = "black", size = 1),
         legend.position = "none",
         plot.title = element_blank(),
@@ -757,14 +940,39 @@ FeaturePlot(lym.obj,
         axis.ticks = element_blank(),
         axis.text = element_blank(),
         axis.title = element_text(size = 10),
-        axis.title.x = element_text(hjust = 0),
-        axis.title.y = element_text(hjust = 0))
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+pdf(paste0(fwd, "scUMAP.ALS_Lymphs.pdf"), width = 3, height = 3)
+print(scUMAP.ALS_Lymphs)
+dev.off()
 
+
+nksig_genes <- c("KLRC1", "GNLY", "TRDC", "FGFBP2", "KLRB1", "KLRC2")
+cytotoxic_genes <- c("PRF1", "GZMB", "KLRD1", "GZMH", "NKG7", "GNLY")
+inhib_genes <- c("PDCD1", "CTLA4", "HAVCR2", "LAG3", "TIGIT")
+trm_genes <- c("CA10", "ITGA1", "ITGAE", "IL2", "IL10", "CXCR6", "CXCL13", "KCNK5", "RGS1", "CRTAM", "DUSP6", "PDCD1")
+cd8_genes <- c("CD8A", "KLRK1", "NKG7", "CD8B", "KLRC4", "KLRD1", "ZNF683")
+cd4_genes <- c("CD4", "CD40LG", "RUNX2", "IL7R")
+lym.obj <- AddModuleScore(lym.obj,
+                          features = list(nksig_genes),
+                          name = "ModuleScore_NKSig",
+                          assay = "RNA")
 lym.obj <- AddModuleScore(lym.obj,
                           features = list(cd8_genes),
                           name = "ModuleScore_CD8",
                           assay = "RNA")
-FeaturePlot(lym.obj,
+lym.obj <- AddModuleScore(lym.obj,
+                          features = list(cd4_genes),
+                          name = "ModuleScore_CD4",
+                          assay = "RNA")
+lym.obj <- AddModuleScore(lym.obj,
+                          features = list(cytotoxic_genes),
+                          name = "ModuleScore_Cytotox",
+                          assay = "RNA")
+FeaturePlot(lym.obj, features = "ModuleScore_Cytotox1")
+DimPlot(lym.obj)
+
+scUMAP.ALS_Lymphs.CD8ModuleScore <- FeaturePlot(lym.obj,
             features = c("ModuleScore_CD81")) +
   scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "RdBu"))) +
   xlab("UMAP1") + 
@@ -777,12 +985,91 @@ FeaturePlot(lym.obj,
         axis.ticks = element_blank(),
         axis.text = element_blank(),
         axis.title = element_text(size = 10),
-        axis.title.x = element_text(hjust = 0),
-        axis.title.y = element_text(hjust = 0))
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+pdf(paste0(fwd, "scUMAP.ALS_Lymphs.CD8ModuleScore.pdf"), width = 2, height = 2)
+print(scUMAP.ALS_Lymphs.CD8ModuleScore)
+dev.off()
+
+scUMAP.ALS_Lymphs.NKSigModuleScore <- FeaturePlot(lym.obj,
+                                                features = c("ModuleScore_NKSig1")) +
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "RdBu"))) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        legend.position = "none",
+        plot.title = element_blank(),
+        plot.subtitle = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+pdf(paste0(fwd, "scUMAP.ALS_Lymphs.NKSigModuleScore.pdf"), width = 2, height = 2)
+print(scUMAP.ALS_Lymphs.NKSigModuleScore)
+dev.off()
+
+scUMAP.ALS_Lymphs.CD4ModuleScore <- FeaturePlot(lym.obj,
+            features = c("ModuleScore_CD41")) +
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "RdBu"))) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        legend.position = "none",
+        plot.title = element_blank(),
+        plot.subtitle = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+pdf(paste0(fwd, "scUMAP.ALS_Lymphs.CD4ModuleScore.pdf"), width = 2, height = 2)
+print(scUMAP.ALS_Lymphs.CD4ModuleScore)
+dev.off()
+
+scUMAP.ALS_Lymphs.CytotoxModuleScore <- FeaturePlot(lym.obj,
+                                                features = c("ModuleScore_Cytotox1")) +
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "RdBu"))) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        legend.position = "none",
+        plot.title = element_blank(),
+        plot.subtitle = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+pdf(paste0(fwd, "scUMAP.ALS_Lymphs.CytotoxModuleScore.pdf"), width = 2, height = 2)
+print(scUMAP.ALS_Lymphs.CytotoxModuleScore)
+dev.off()
+
+scUMAP.ALS_Lymphs.KLRB1 <- FeaturePlot(lym.obj,
+            features = c("KLRB1")) +
+  scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "RdBu"))) +
+  xlab("UMAP1") + 
+  ylab("UMAP2") +
+  theme(panel.background = element_rect(colour = "black", size = 1),
+        legend.position = "none",
+        plot.title = element_blank(),
+        plot.subtitle = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+pdf(paste0(fwd, "scUMAP.ALS_Lymphs.KLRB1.pdf"), width = 2, height = 2)
+print(scUMAP.ALS_Lymphs.KLRB1)
+dev.off()
 
 Idents(object = lym.obj) <- "seurat_clusters"
-markers <- FindAllMarkers(lym.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-top7 <- markers %>%
+lym.markers <- FindAllMarkers(lym.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top7 <- lym.markers %>%
   group_by(cluster) %>%
   top_n(n = 7, wt = avg_log2FC)
 
@@ -817,4 +1104,133 @@ cd4TCell <- colnames(lym.obj)[lym.obj$seurat_clusters == 2]
 # KLRB1 can stratify pediatric LGG patient survival if split by high and low expression
 FeaturePlot(lym.obj, features = "KLRB1")
 
+library(org.Hs.eg.db)
+library(enrichplot)
+library(clusterProfiler)
+for (c in c(0:3)) {
+  clusterGenes <- lym.markers %>%
+    filter(cluster == c & p_val_adj < 0.01) %>%
+    arrange(-avg_log2FC) %>%
+    pull(gene)
+  
+  clusterGenes <- AnnotationDbi::select(org.Hs.eg.db,
+                                        keys = clusterGenes,
+                                        columns = c("ENTREZID", "SYMBOL"),
+                                        keytype = "SYMBOL") %>%
+    na.omit() %>%
+    pull(ENTREZID)
+  goPlot <- enrichGO(gene = clusterGenes,
+                     OrgDb = org.Hs.eg.db,
+                     keyType = 'ENTREZID',
+                     ont = "BP",
+                     pAdjustMethod = "BH",
+                     qvalueCutoff = 0.001,
+                     readable = TRUE) %>%
+    enrichplot::pairwise_termsim() %>%
+    dotplot(x = "GeneRatio",
+            showCategory = 20,
+            font.size = 8,
+            title = paste0("Pathways enriched in cluster ", c))
+  assign(paste0("goPlot_Lym.C", c), goPlot)
+}
+# save(lym.obj, file = paste0(wd, "PA/PA_Data/ALS.LymphObject_21.05.2022.RData"))
+
+
+########## Annotation of glioma cells ########## 
+load("PA/PA_Data/ALS.IntegratedObject_18.05.2022.RData")
+library(Seurat)
+
+DefaultAssay(glioma.obj) <- "integrated"
+glioma.obj <- ScaleData(glioma.obj, verbose = F)
+glioma.obj <- RunPCA(glioma.obj, features = VariableFeatures(glioma.obj))
+dims.use <- 30
+gam.obj <- RunUMAP(glioma.obj, dims = 1:dims.use, min.dist = 0.5, verbose = F)
+DimPlot(glioma.obj, group.by = "updated_location", reduction = "umap")
+DimPlot(glioma.obj, group.by = "orig.ident", reduction = "umap")
+
+glioma.obj <- FindNeighbors(glioma.obj)
+glioma.obj <- FindClusters(glioma.obj, group.singletons = TRUE, resolution = 0.25)
+DimPlot(glioma.obj, group.by = "seurat_clusters", split.by = "updated_location")
+
+Idents(object = glioma.obj) <- "updated_location"
+DefaultAssay(glioma.obj) <- "RNA"
+location.markers <- FindAllMarkers(glioma.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+spinalGenes <- c("HOXB2", "HOXA7", "HOXB2")
+glioma.obj <- AddModuleScore(glioma.obj,
+                          features = list(spinalGenes),
+                          name ="ModuleScore_spinal",
+                          assay = "RNA")
+FeaturePlot(glioma.obj, features = "ModuleScore_spinal1")
+
+Idents(object = glioma.obj) <- "seurat_clusters"
+DefaultAssay(glioma.obj) <- "integrated"
+cluster.markers <- FindAllMarkers(glioma.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+top5 <- cluster.markers %>%
+  group_by(cluster) %>%
+  top_n(n = 5, wt = avg_log2FC)
+DoHeatmap(glioma.obj, top5$gene, raster = TRUE)
+
+glioma.cluterHeatmap <- AverageExpression(glioma.obj, 
+                                       assays = "integrated",
+                                       features = c(top5$gene),
+                                       group.by = "seurat_clusters",
+                                       return.seurat = TRUE)
+
+col_fun = colorRamp2(c(-1.5, 0, 1.5), c("navy", "white", "red"))
+ht_list <- Heatmap(glioma.cluterHeatmap@assays$integrated@scale.data,
+                   cluster_rows = FALSE,
+                   cluster_columns = FALSE, 
+                   border = "black",
+                   column_split = c(0:4),
+                   col = col_fun,
+                   show_column_names = FALSE, 
+                   heatmap_legend_param = list(
+                     title = "Relative expression",
+                     direction = "horizontal",
+                     at = c(-2, 0, 2),
+                     border = "black",
+                     legend_width = unit(6, "cm"),
+                     title_position = "topcenter"
+                   ))
+0: 
+1: glioma-stem cell
+2: 
+3: immune-active
+4: pro-angiogenic
+
+library(org.Hs.eg.db)
+library(enrichplot)
+library(clusterProfiler)
+for (c in (markers$cluster %>% unique())) {
+  clusterGenes <- markers %>%
+    filter(cluster == 3 & p_val_adj < 0.01) %>%
+    arrange(-avg_log2FC) %>%
+    pull(gene)
+  rankGenes <- markers %>%
+    filter(cluster == c & p_val_adj < 0.01) %>%
+    arrange(-avg_log2FC) %>%
+    pull(avg_log2FC)
+  geneWithRanks <- data.frame(GeneName = clusterGenes, GeneRank = rankGenes)
+
+  clusterGenes <- AnnotationDbi::select(org.Hs.eg.db,
+                                        keys = clusterGenes,
+                                        columns = c("ENTREZID", "SYMBOL"),
+                                        keytype = "SYMBOL") %>%
+    na.omit() %>%
+    pull(ENTREZID)
+  goPlot <- enrichGO(gene = clusterGenes,
+                     OrgDb = org.Hs.eg.db,
+                     keyType = 'ENTREZID',
+                     ont = "BP",
+                     pAdjustMethod = "BH",
+                     qvalueCutoff = 0.001,
+                     readable = TRUE) %>%
+    enrichplot::pairwise_termsim() %>%
+    dotplot(x = "GeneRatio",
+            showCategory = 20,
+            font.size = 8,
+            title = paste0("Pathways enriched in ", c))
+  assign(paste0("goPlot_Glioma", c), goPlot)
+}
 
