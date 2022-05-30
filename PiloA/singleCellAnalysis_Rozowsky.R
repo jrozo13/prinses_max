@@ -1,5 +1,5 @@
-# Single-cell Pilocytic Astrocytoma analysis (Alex's Lemonade Stand)
-# Last updated: 26/04/2022
+# Single-cell Pilocytic Astrocytoma analysis (Rozowsky)
+# Last updated: 24/05/2022
 
 ########## Initialize ##########
 ## Install global packages ##
@@ -98,7 +98,7 @@ cell_idents <- merge(x = integrated@meta.data %>% rownames_to_column() %>%  sele
 cell_idents <- cell_idents[rownames(integrated@meta.data),]
 integrated <- AddMetaData(integrated, metadata = cell_idents$cluster_predictions.listData.labels, col.name = "SingleR.Annotation")
 DimPlot(integrated, reduction = "umap", group.by = "SingleR.Annotation", pt.size = 1.5)
-DimPlot(integrated, reduction = "umap", group.by = "integrated_snn_res.0.2")
+DimPlot(Rozowsky_seurat, reduction = "umap", group.by = "integrated_snn_res.0.2")
 
 markers <- FindAllMarkers(integrated, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
 top5 <- markers %>%
@@ -108,9 +108,34 @@ top5 <- markers %>%
 DoHeatmap(integrated, features = top5$gene) + NoLegend()
 
 # Immune cells vs glioma vs stromal cells
-FeaturePlot(integrated, features = "PTPRC")
+DimPlot(Rozowsky_seurat, group.by = "Phase")
+FeaturePlot(Rozowsky_seurat, features = "H2AZ1")
+
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+DefaultAssay(object = Rozowsky_seurat) <- "RNA"
+Rozowsky_seurat <- CellCycleScoring(Rozowsky_seurat, s.features = s.genes, g2m.features = g2m.genes,  set.ident = TRUE)
+DimPlot(Rozowsky_seurat, group.by = "Phase", split.by = "updated_location")
 
 assign("Rozowsky_seurat", integrated)
-save(Rozowsky_seurat, file = paste0(wd, "PA/PA_Data/Rozowsky.SCEAnalaysis_19.05.2022.RData"))
+# save(Rozowsky_seurat, file = paste0(wd, "PA/PA_Data/Rozowsky.SCEAnalaysis_19.05.2022.RData"))
+
+########## CNV Calling ##########
+library(rjags)
+library(infercnv)
+library(Seurat)
+load("PA/PA_Data/Rozowsky.SCEAnalaysis_19.05.2022.RData")
+DimPlot(Rozowsky_seurat)
+normal.cells.confirmed <- Cells(Rozowsky_seurat)[Rozowsky_seurat$seurat_clusters %in% c("2", "4", "6", "7", "8")]
+DimPlot(Rozowsky_seurat, cells.highlight = normal.cells.confirmed)
+table(Rozowsky_seurat$SingleR.Annotation, Rozowsky_seurat$seurat_clusters)
+
+counts_matrix = GetAssayData(Rozowsky_seurat, slot="counts")
+annotations_file = data.frame(Cells(Rozowsky_seurat), Rozowsky_seurat$seurat_clusters)
+infercnv_obj = CreateInfercnvObject(raw_counts_matrix = counts_matrix, 
+                                    annotations_file = ,
+                                    # delim="\t",
+                                    gene_order_file=system.file("extdata", "gencode_downsampled.EXAMPLE_ONLY_DONT_REUSE.txt", package = "infercnv"),
+                                    ref_group_names = c("2", "4", "6", "7", "8")) 
 
 

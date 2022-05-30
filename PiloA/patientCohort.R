@@ -12,9 +12,9 @@ library(RColorBrewer)
 library(circlize)
 col_annotations <- list(
   Sex = c("M" = "skyblue", "F" = "pink"),
-  Location = c("intramedullary" = "#EF553B", 
-               "PF" = "#636EFA", 
-               "ST" = "#00CC96"),
+  Location = c("spinal" = "#EF553B", 
+               "posterior fossa" = "#636EFA", 
+               "supratentorial" = "#00CC96"),
   Age = colorRamp2(c(0,20), c("#edf8e9", "#74c476"))
 )
 
@@ -59,10 +59,18 @@ annotations <- annotations %>%
                                          "Fusion, SNV",
                                          "Fusion; SNV",
                                          "SNV, SNV"))) %>%
-  mutate(Location = factor(annotations$Location, 
+  mutate(Location = factor(annotations$Location,
                            levels = c("PF", "ST", "intramedullary"))) %>%
-  mutate(snRNAseq = ifelse(snRNAseq == "No", "No", "Yes")) %>%
-  arrange(Molecular.1, Molecular.2, NumMut, Location, Sex)
+  mutate(snRNAseq = ifelse(snRNAseq == "No", "No", "Yes"))
+  
+
+library(plyr)
+annotations$Location <- revalue(annotations$Location,
+                                c("intramedullary" = "spinal",
+                                  "PF" = "posterior fossa",
+                                  "ST" = "supratentorial"))
+annotations <- annotations %>% arrange(Molecular.1, Molecular.2, NumMut, Location, Sex)
+
 #write.csv(combined, file = "/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PA_cohort_metadata.csv")
 
 sample_order <- unique(annotations$Subject.ID)
@@ -86,7 +94,7 @@ alter_fun = list(
   Deletion = alter_graphic("rect", fill = col["Deletion"]),
   SNV = alter_graphic("rect", height = 0.33, fill = col["SNV"]))
 
-mat <- read.csv("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PA_for_oncoprint.csv", header = T, row.names = 1)
+# mat <- read.csv("/Users/jrozowsky/Library/Mobile Documents/com~apple~CloudDocs/Documents/PMC/PA/PA_Data/PA_for_oncoprint.csv", header = T, row.names = 1)
 combined <- read.csv(paste0(wd, "PA/PA_Data/PA_cohort_metadata.csv"),
                      header = T, row.names = 1)
 
@@ -108,15 +116,18 @@ oncoprint_PA <- oncoPrint(mat,
           alter_fun = alter_fun, 
           col = col,
           pct_side = "right", 
+          pct_gp = gpar(fontsize = 15),
           row_names_side = "left",
           alter_fun_is_vectorized = FALSE,
           column_order = sample_order,
+          row_names_gp = gpar(fontsize=15),
           top_annotation = HeatmapAnnotation(
             cbar = anno_oncoprint_barplot(),
             #Age = age,
             Location = location,
             Sex = sex,
-            col = col_annotations),
+            col = col_annotations,
+            annotation_name_gp = gpar(fontsize = 15)),
           bottom_annotation = HeatmapAnnotation(
             DNAme = anno_simple(RNAseq,
                                 pch = as.numeric(bottom_mat$DNAme),
@@ -133,9 +144,9 @@ oncoprint_PA <- oncoPrint(mat,
                                  pt_gp = gpar(col = "black"), 
                                  pt_size = unit(rep(c(2),83),"mm"),
                                  col = bottom_col),
-            annotation_height = unit(7, "mm"),
-            annotation_name_gp = gpar(fontsize = 7)))
+            annotation_height = unit(10, "mm"),
+            annotation_name_gp = gpar(fontsize = 10)))
             
-pdf(paste0(fwd, "oncoplot_23.03.22.pdf"), width = 15, height = 5)
+pdf(paste0(fwd, "oncoplot_22.05.22.pdf"), width = 14, height = 5.5)
 print(oncoprint_PA)
 dev.off()

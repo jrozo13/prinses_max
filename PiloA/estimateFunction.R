@@ -3,13 +3,10 @@
 
 ########## Organize data and cohort ##########
 library(tidyverse)
-pa_meta_data <- read.csv(file = "/Users/jrozowsky/Documents/PMC/PA/PA_DataSets/PA_cohort_metadata.csv")
-pa_samples <- pa_meta_data$Sample.ID
-covariate_data <- meta_data %>% column_to_rownames(var = "Sample.ID") %>% 
-  select("gender", "Age..years.", "location_updated", "Primary.or.recurrent.")
-colnames(covariate_data) <- c("Gender", "Age", "Location", "Stage")
+pa.meta_data <- read_excel(path = "PA/Cohort/ClinicalData_updates.xlsx", sheet = "CohortList")
+pa_samples <- pa.meta_data$PMABM
 
-load_data <- readRDS("/Users/jrozowsky/Documents/PMC/Data/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
+load_data <- readRDS("/Users/jrozowsky/Documents/PMC/Data/PMC/20211126_PMCdiag_RNAseq_counts_noHiX.rds")
 meta_data <- load_data$metaData
 gbm_samples <- rownames(meta_data)[meta_data$Disease_sub_class == "Glioblastoma"]
 dmg_samples <- rownames(meta_data)[meta_data$Disease_sub_class == "Diffuse midline glioma"]
@@ -17,6 +14,7 @@ epn_samples <- rownames(meta_data)[meta_data$Disease_sub_class == "Ependymoma"]
 mb_samples <- rownames(meta_data)[meta_data$Disease_sub_class == "Medulloblastoma"]
 lgg_samples <- setdiff(rownames(meta_data)[meta_data$Disease_main_class == "Low grade glioma" & meta_data$Disease_sub_class == "Pilocytic astrocytoma"], pa_samples)
 meta_samples <- c(pa_samples, gbm_samples, dmg_samples, epn_samples, mb_samples, lgg_samples)
+meta_samples <- meta_samples[meta_samples %in% rownames(meta_data)]
 
 meta_df <- meta_data %>% 
   rownames_to_column() %>%
@@ -29,6 +27,7 @@ meta_df <- meta_data %>%
                                                  ifelse(rowname %in% epn_samples, "Ependymoma", "Medulloblastoma")))))) %>%
   column_to_rownames(var = "rowname") %>%
   select(Diagnosis)
+
 
 count_data <- load_data$rawCounts %>% select(meta_samples)
 rm(load_data)
@@ -57,6 +56,7 @@ neuro_estimate$Diagnosis <- factor(neuro_estimate$Diagnosis, levels =
 
 library(ggpubr)
 library(circlize)
+library(scales)
 col_annotations <- list(
   Sex = c("M" = "skyblue", "F" = "pink"),
   Location = c("Spinal" = "#f2f0f7", 
@@ -70,20 +70,24 @@ col_annotations <- list(
                 "Non-PA LGG" = hue_pal()(6)[5],
                 "Pilocytic astrocytoma" = "#6a51a3")
 )
-
+library(viridis)
+colors = plasma(n = 6)
+#Bulk.ImmuneScoreEnrichmentDiagnosis <- 
 neuro_estimate %>% 
-  select(ImmuneScore, Diagnosis) %>%
-  ggplot(aes(x = Diagnosis, y = ImmuneScore)) +
+  select(StromalScore, Diagnosis) %>%
+  ggplot(aes(x = Diagnosis, y = StromalScore)) +
   geom_violin(aes(fill = Diagnosis), scale = "width", width = 0.7) +
-  geom_boxplot(width = 0.1, fill = "white", alpha = 0.7) +
-  scale_fill_manual(name = "Diagnosis", values = col_annotations$Diagnosis) +
-  scale_color_manual(name = "Diagnosis", values = col_annotations$Diagnosis) +
-  stat_compare_means(label.y = 1400, label.x = 1) +
+  geom_boxplot(width = 0.2, fill = "white", alpha = 0.7) +
+  scale_fill_manual(values = colors) +
   theme_classic() +
   theme(legend.position = "none",
-        axis.title.x = element_blank())
-ggsave(filename = "/Users/jrozowsky/Documents/PMC/PA/PA_Figures/ImmuneScore_Diagnosis.png", plot = last_plot(),
-       width = 10, height = 7)
+        axis.title = element_blank(),
+        axis.text.y = element_blank(),
+        axis.text.x = element_text(size = 15)) +
+  coord_flip()
+pdf(file = paste0(fwd, "Bulk.ImmuneScoreEnrichmentDiagnosis.pdf"), width = 6, height = 4)
+print(Bulk.ImmuneScoreEnrichmentDiagnosis)
+dev.off()
 
 pa_estimate <- neuro_estimate[pa_samples,] %>%
   merge(covariate_data, by = "row.names") %>%
@@ -93,8 +97,8 @@ pa_estimate %>%
   select(ImmuneScore, Location) %>%
   ggplot(aes(x = Location, y = ImmuneScore)) +
   geom_violin(aes(fill = Location), scale = "width", width = 0.7) +
-  geom_boxplot(width = 0.1, fill = "white", alpha = 0.7) +
-  scale_fill_manual(name = "Location", values = col_annotations$Location) +
+  geom_boxplot(width = 0.2, fill = "white", alpha = 0.7) +
+  scale_fill_manual(values = colors) +
   stat_compare_means(label.y = 1400, label.x = 1) +
   theme_classic() +
   theme(legend.position = "none",
