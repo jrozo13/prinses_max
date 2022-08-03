@@ -28,20 +28,24 @@ library(Seurat)
 library(SingleCellExperiment)
 meta_data <- read_excel(path = "PA/Cohort/ClinicalData_updates.xlsx", sheet = "CohortList")
 meta_data <- meta_data %>% 
-  select(`Weefsel#`, snRNAseq, `Processed date`, ID, Location, LocationSpecific) %>%
   filter(snRNAseq %in% c("Yes", "Yes (MIMIC)")) %>%
-  mutate(LocationUpdated = ifelse(Location == "intramedullary", "Spinal", Location)) %>%
-  na.omit()
+  mutate(location = ifelse(Location == "intramedullary", "Spinal", Location)) %>%
+  mutate(date = as.character(`Processed date`)) %>%
+  select(ID, location, date)
 
 rozo_ids <- list.files(path = paste0(wd, "Data/Rozowsky_2022/"))
+
+sort(rozo_ids) == sort(meta_data$ID) # check
+
 # loop through all patient files and make seurat object for each sample
 for (patient in rozo_ids) {
   file_dir <- paste0(wd, "Data/Rozowsky_2022/", patient, "/filtered_feature_bc_matrix/")
   counts <- Read10X(data.dir = file_dir)
   seuratObj <- CreateSeuratObject(counts = counts, project = patient, assay = "RNA")
   
-  location <- meta_data$LocationUpdated[meta_data$ID == patient]
-  seuratObj$updated_location <- location
+  seuratObj$location <- meta_data$location[meta_data$ID == patient]
+
+  seuratObj$date <- meta_data$date[meta_data$ID == patient]
   
   print(paste0(patient, "_sce"))
   assign(paste0(patient, "_sce"), seuratObj)
@@ -60,7 +64,7 @@ rm(list = paste0(rozo_ids, "_sce"))
 library(scater)
 # change this to the object of interest
 # seurat.object = combined
-seurat.object = rozo.combined
+seurat.object = rozo.combined; rm(rozo.combined)
 
 sce <- as.SingleCellExperiment(x = seurat.object)
 
@@ -75,20 +79,20 @@ colnames(colData(sce))
 summary(sce$nCount_RNA)
 ggplot(mapping = aes(x = sce$nCount_RNA)) + 
   geom_density(fill = "lightblue") +
-  geom_vline(xintercept = 1000, color = "red") +
+  geom_vline(xintercept = 1250, color = "red") +
   labs(x = "Counts per cell") +
   xlim(0, 30000)
-sum(sce$nCount_RNA < 1000)
-# filter out 260 nuclei
+sum(sce$nCount_RNA < 1250)
+# filter out 9064 nuclei
 
 # Quality check: number of genes expressed (nFeature_RNA)
 summary(sce$nFeature_RNA)
 ggplot(mapping = aes(x = sce$nFeature_RNA)) + 
   geom_density(fill = "lightblue") +
-  geom_vline(xintercept = 500, color = "red") +
+  geom_vline(xintercept = 800, color = "red") +
   labs(x = "Number of genes expressed")
-sum(sce$nFeature_RNA < 500)
-# Filter out 62 nuclei
+sum(sce$nFeature_RNA < 800)
+# Filter out 7285 nuclei
 
 # Qualtiy check: percent mitochondrial genes expressed (percent.mito)
 ggplot(mapping = aes(x = sce$percent.mito)) +
@@ -106,8 +110,8 @@ ggplot(mapping = aes(x = sce$percent.mito)) +
 # Filter 0 nuclei
 
 # Set Thresholds for qualtiy control
-genes_exp.check = 500
-total_counts.check = 1000
+genes_exp.check = 800
+total_counts.check = 1250
 mito_fraction.check = 20
 
 qc_df <- data.frame(barcode = Cells(sce),
@@ -148,10 +152,11 @@ filtered_samples <- qc_df %>%
                 mito_fraction <= mito_fraction.check)
 
 # Remove low quality cells based on parameters
-sce_clean <- sce[,rownames(filtered_samples)]
+sce_clean <- sce[,rownames(filtered_samples)]; rm(sce)
 sce_clean@colData <- sce_clean@colData[Cells(sce_clean),]
+table(sce_clean$orig.ident)
 
-assign("Rozowsky_sce", sce_clean)
+assign("Rozowsky_sce", sce_clean); rm(sce_clean)
 
-save(Rozowsky_sce, file = paste0(wd, "PA/PA_Data/Rozowsky.SingleCellExpObject_19.05.2022.RData"))
+save(Rozowsky_sce, file = paste0(wd, "PA/PA_Data/Rozowsky.SingleCellExpObject_03.08.2022.RData"))
 

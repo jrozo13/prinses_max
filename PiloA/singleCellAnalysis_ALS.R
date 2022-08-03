@@ -1227,6 +1227,8 @@ pdf(paste0(fwd, "scUMAP.ALS_glioma.pdf"), width = 4, height = 4)
 print(scUMAP.ALS_glioma)
 dev.off()
 
+
+
 Idents(object = glioma.obj) <- "seurat_clusters"
 DefaultAssay(glioma.obj) <- "integrated"
 cluster.markers <- FindAllMarkers(glioma.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
@@ -1375,6 +1377,11 @@ scUMAP.ALS_Glioma.CD44 <- FeaturePlot(glioma.obj,
 pdf(paste0(fwd, "scUMAP.ALS_Glioma.CD44.pdf"), width = 2, height = 2)
 print(scUMAP.ALS_Glioma.CD44)
 dev.off()
+
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+glioma.obj <- CellCycleScoring(glioma.obj, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE, assay = "RNA")
+DimPlot(glioma.obj, group.by = "Phase")
 
 ########## Mix cohort ##########
 load("PA/PA_Data/ALS.IntegratedObject_18.05.2022.RData")

@@ -1,5 +1,5 @@
 # Single-cell Pilocytic Astrocytoma analysis (Rozowsky)
-# Last updated: 24/05/2022
+# Last updated: 03/08/2022
 
 ########## Initialize ##########
 ## Install global packages ##
@@ -24,62 +24,67 @@ setwd(wd)
 fwd <- paste0(wd, "PA/Analysis/Figures/") # figure working directory
 
 ########## Make Seurat Object ##########
-load(paste0(wd, "PA/PA_Data/Rozowsky.SingleCellExpObject_19.05.2022.RData"))
+load(paste0(wd, "PA/PA_Data/Rozowsky.SingleCellExpObject_03.08.2022.RData"))
 library(Seurat)
 library(SingleCellExperiment)
-Rozowsky_seurat <- as.Seurat(Rozowsky_sce)
+sce <- as.Seurat(Rozowsky_sce); rm(Rozowsky_sce)
 
-object.list <- SplitObject(Rozowsky_seurat, split.by = "orig.ident")
-for (i in 1:length(object.list)) {
-  print(paste0("index: ", i, "; nCells: ", length(Cells(object.list[[i]]))))
-}
-# remove samples with < 30 cells after filtering
-
-for (i in 1:length(object.list)) {
-  object.list[[i]] <- NormalizeData(object.list[[i]], verbose = F)
-  object.list[[i]] <- FindVariableFeatures(object.list[[i]], nfeatures = 4000, verbose = F)
-}
-
-# Find anchors
-anchors <- FindIntegrationAnchors(object.list = object.list, dims = 1:30, verbose = F)
-# Integrate data
-integrated <- IntegrateData(anchorset = anchors, verbose = F)
-
-integrated <- ScaleData(integrated, verbose = F)
-integrated <- RunPCA(integrated, features = VariableFeatures(integrated))
-ElbowPlot(object = integrated, ndims = 50)
+sce <- NormalizeData(sce)
+sce <- FindVariableFeatures(sce, nfeatures = 5000)
+sce <- ScaleData(sce, verbose = F)
+sce <- RunPCA(sce, features = VariableFeatures(sce))
+ElbowPlot(object = sce, ndims = 50)
 # use 30 PCs
 
 dims.use <- 30
-integrated <- RunTSNE(integrated, dims = 1:dims.use, verbose = F)
-integrated <- RunUMAP(integrated, dims = 1:dims.use, verbose = F)
-# assign(paste0("integrated_mito", mito_fraction.check), integrated)
-DimPlot(integrated, reduction = "umap", group.by = "orig.ident")
-DimPlot(integrated, reduction = "umap", group.by = "updated_location")
+sce <- RunUMAP(sce, dims = 1:dims.use, verbose = F)
+DimPlot(sce, reduction = "umap", group.by = "orig.ident")
+DimPlot(sce, reduction = "umap", group.by = "location")
+DimPlot(sce, reduction = "umap", group.by = "date")
 
-ST_genes <- c("FOXG1", "SIX6", "VAX1", "SIX3", "C14orf39")
-PF_genes <-
-FeaturePlot(integrated,
-            reduction = "umap",
-            split.by = "updated_location",
-            features = ST_genes)
+# see clear separation by patient --> try harmony correction
 
-# We do not see separation by patient or batches
-FeaturePlot(integrated,
-            reduction = "tsne", 
-            features = c("nUMI", "nGene", "percent.mito"))
+########## Harmony Alignment ##########
+library(harmony)
+theta.use <- 1
+sce <- RunHarmony(object = sce,
+                  group.by.vars = "orig.ident",
+                  theta = theta.use,
+                  plot_convergence = TRUE)
+
+sce <- RunUMAP(object = sce,
+               reduction = "harmony",
+               dims = 1:dims.use,
+               reduction.name = "umapHarmony",
+               reduction.key = "umapHarmony")
+DimPlot(sce, reduction = "umapHarmony", group.by = "orig.ident")
+DimPlot(sce, reduction = "umapHarmony", group.by = "location")
+DimPlot(sce, reduction = "umapHarmony", group.by = "date")
+
+Rozowsky_sce.harmonyCorrection <- sce; rm(sce)
+save(Rozowsky_sce.harmonyCorrection, file = paste0(wd, "PA/PA_Data/Rozowsky.SeuratHarmonyCorrection_03.08.2022.RData"))
 
 ########## Clustering ##########
-integrated <- FindNeighbors(integrated,
-                           dims = 1:dims.use,
-                           annoy.metric = "euclidean")
-integrated <- FindClusters(integrated, 
-                           resolution = 0.2, 
-                           group.singletons = FALSE,
-                           algorithm = 1)
-DimPlot(integrated,
+load("PA/PA_Data/Rozowsky.SeuratHarmonyCorrection_03.08.2022.RData")
+sce <- Rozowsky_sce.harmonyCorrection; rm(Rozowsky_sce.harmonyCorrection)
+
+FeaturePlot(sce,
+            reduction = "umapHarmony",
+            split.by = "location",
+            features = c("nCount_RNA", "nFeature_RNA"))
+
+sce <- FindNeighbors(sce,
+                     dims = 1:dims.use,
+                     reduction = "harmony",
+                     annoy.metric = "euclidean")
+sce <- FindClusters(sce, 
+                    resolution = 0.2, 
+                    group.singletons = FALSE,
+                    algorithm = 1)
+DimPlot(sce,
         pt.size = 1,
-        reduction = "umap")
+        reduction = "umapHarmony",
+        split.by = "location")
 
 library(SingleR)
 library(celldex)
